@@ -4,7 +4,7 @@
 
 **All-in-one Discord community bot for gaming servers**
 
-[![Version](https://img.shields.io/badge/version-v0.24.0-blue?style=flat-square)](https://github.com/jeremiejt38/Guardian_Discord_Bot/releases)
+[![Version](https://img.shields.io/badge/version-v0.27.0-blue?style=flat-square)](https://github.com/jeremiejt38/Guardian_Discord_Bot/releases)
 [![Node](https://img.shields.io/badge/node-%3E%3D18-green?style=flat-square)](https://nodejs.org)
 [![License](https://img.shields.io/badge/license-Proprietary-orange?style=flat-square)](LICENSE)
 
@@ -167,6 +167,10 @@ npm start
 
 | Version | Description |
 |---------|-------------|
+| **v0.27** | **modules**: refonte channelsPanel — 6 modules, 1 row/module, description sous-texte · **serveursJeu**: flow modifier avec toggles + suppression par confirmation nom · **structure**: refacto channels modération + configuration · **tests**: corriger customId channels:toggle:serveurs → serverlist · **migrations**: migration 1.1.0 renommage channels bot→notifications, channels→modules, logs-mod→validation · **setup**: migration renommage channels bot→notifications, channels→modules |
+| | [Full diff](https://github.com/jeremiejt38/Guardian_Discord_Bot/compare/v0.26.0...v0.27.0) |
+| **v0.26** | **Config panels rework** — `#config-jeux` : liste des jeux avec 4 statuts (texte/galerie/changelog/forum) + Steam AppID, 3 boutons Ajouter/Modifier/Supprimer, select paginé, modals nom/steamId, toggles inline, suppression avec confirmation · `#config-serveurs-jeu` : affichage statut temps réel (🟢🔴🟡) + dernière vérif, 3 boutons fixes, flow Ajouter (select jeux paginé → modal), Modifier (modal prérempli), Supprimer (confirmation) · DB migration v10 : `forum_enabled` + `channel_forum_id` · Talos daemon : récupération des jobs orphelins après crash | [Full diff](https://github.com/jeremiejt38/Guardian_Discord_Bot/compare/v0.25.0...v0.26.0) |
+| **v0.25** | **UX config & setup** — `/status` command (server config overview: grades, modules, channels, members, games, tier) · `#demandes` unified panel (game/server/report requests with modals + approve/reject flow) · `#liste-serveurs` refactored (one message per server, copy IP + Steam connect buttons) · `#config-roles` revamped (role descriptions, 2-step edit: name modal + color select menu with 10 presets) · Setup: orphan category cleanup, repositionHiddenChannels post-install, startup resume · Guides fallback to GuildText on non-community servers · Channel topics (all languages) | | [Full diff](https://github.com/jeremiejt38/Guardian_Discord_Bot/compare/v0.24.0...v0.25.0) |
 | **v0.24** | **docs+tests**: AXE 4 — ARCHITECTURE.md, 20 tests premium (total 148), fix isPremiumGateClick null-safety, export buildRows · **premium**: AXE 3.4 — Server list gate premium (fix getDb, cadenas UI serveurs+suggestions dans channelsPanel) · **premium**: AXE 3.3 — Forum suggestions avec statuts (threadCreate, UI boutons, gate premium, 10 tests) · **premium**: AXE 3.2 — Welcome DM custom (template {name}/{server}/{delay}/{grade}, gate UI cadenas, 14 tests) · **premium**: AXE 3.1 — sanctions auto comportementales gatées premium (isPremium guard + UI cadenas) · **premium**: AXE 1 — tier system (guild_tier BDD, isPremium, premiumGate, /admin setpremium, 21 tests) |
 | | [Full diff](https://github.com/jeremiejt38/Guardian_Discord_Bot/compare/v0.23.16...v0.24.0) |
 | **v0.23** | **Community onboarding & premium infrastructure** — 3 invite modes (Classic / Strict / Direct), `#devenir-membre` ephemeral flow, `#rejoindre-notre-serveur`, Discord native settings (AFK, AutoMod, Onboarding), Discord AutoMod→behavior score integration, server guides, premium tier system (`guild_tier`, `isPremium()`, lock buttons 🔒), `/admin setpremium`, premium-gated features (auto sanctions, custom welcome DM, suggestions forum with statuses, server list), release pipeline (free bundle, README generator, changelog grouping by minor, backport), proprietary license + CONTRIBUTING CLA |
@@ -205,7 +209,7 @@ npm start
 Delivered items validated before the public v1.0.0 release:
 
 ### 🔴 Blocking
-- [x] **End-to-end integration tests** — 8 E2E tests, 6 complete flows, 95 tests total ✅ v0.10.5
+- [x] **End-to-end integration tests** — 8 E2E tests, 6 complete flows, 148 tests total ✅ v0.10.5→v0.24.0
 - [x] **Discord 50013 error handling** — `safeDiscordAction` + global interactionCreate safety net ✅ v0.10.3
 - [x] **Automatic DB migration** — Versioned `MIGRATIONS` array system ✅ v0.10.1
 - [x] **`/help` command** — Contextual help for 7 modules, embeds, i18n ✅ v0.10.4
@@ -217,11 +221,16 @@ Delivered items validated before the public v1.0.0 release:
 - [x] **Step 3 validation** — `#general` required before proceeding ✅ v0.10.2
 - [x] **Rate limiting** — 4-level debounce 600ms→5s, `rateLimit.js`, auto-cleanup ✅ v0.11.1
 - [x] **Bot system admin panel** — DM panel, alert toggles, auto-update, bootstrap ✅ v0.21.0
+- [x] **Premium tier system** — `guild_tier` DB, `isPremium()`, lock buttons 🔒, `/admin setpremium` ✅ v0.24.0
+- [x] **Premium-gated features** — Auto sanctions, custom welcome DM, suggestions forum, server list ✅ v0.24.0
+- [x] **Release pipeline** — Free bundle build, anti-leak check, README generator, backport auto ✅ v0.23.x
+- [x] **Codebase modularisation** — `setupHandlers.js` 1825→54 lines, 10 dedicated handler files ✅ v0.24.0
+- [x] **Architecture documentation** — `docs/ARCHITECTURE.md`, flux, tables BDD, features premium ✅ v0.24.0
 
 ### 🟡 Nice-to-have (pre-V1)
 - [x] **`/ping`** — Check bot responsiveness and display latency ✅ v0.22.0
 - [x] **Slash command cooldown** — Global rate limiting on slash commands ✅ v0.22.0
-- [x] **Discord forum support** — Forum Channels for suggestions and reports ✅ v0.23.x
+- [x] **Suggestions forum with statuses** — Forum threads + status buttons (pending/inprogress/accepted/rejected), premium-gated ✅ v0.24.0
 - [ ] **Permission check on startup** — Warn bot admin via DM if `ManageChannels`/`ManageRoles` missing in a guild instead of silently failing
 - [ ] **`/status`** — Display current server configuration state (modules, channels, members) without opening wizard. Guild admins only, never bot admin.
 - [ ] **Bot admin panel — Recap tab** — 5th tab in admin DM panel showing aggregated anonymous stats for the past 30 days across all guilds (new members, active games, moderation incidents count). On-demand only, no automatic DM spam.
@@ -253,7 +262,7 @@ Delivered items validated before the public v1.0.0 release:
 | Feature | Description |
 |---------|-------------|
 | Steam notifications | Direct Steam API webhook instead of polling |
-| Forum Channels support | Forum Channels for suggestions and reports |
+| ~~Forum Channels support~~ ✅ | Delivered in v0.24.0 (suggestions forum with statuses) |
 | Behavior leaderboard | Member ranking by behavior score, visible in a dedicated channel |
 | Multi-server config copy | Copy Guardian config from one guild to another (for multi-community managers) |
 
