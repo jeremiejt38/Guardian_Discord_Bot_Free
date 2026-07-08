@@ -1,0 +1,111 @@
+const path = require('path');
+const dotenv = require('dotenv');
+
+dotenv.config();
+
+const NODE_ENV = process.env.NODE_ENV || 'production';
+
+const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
+
+if (!DISCORD_TOKEN) {
+  throw new Error('DISCORD_TOKEN is not set in .env');
+}
+
+const CATEGORIES = Object.freeze({
+  setup: 'guardian-setup',
+  informations: '📋 Informations',
+  communaute: '🌐 Communauté',
+  guides: '📚 Guides',
+  vocaux: '🔊 Salons Vocaux',
+  moderation: '🛡️ Modération',
+  configuration: '⚙️ Configuration'
+});
+
+const CHANNELS = Object.freeze({
+  setup: 'setup',
+  welcome: 'bienvenue',
+  rules: 'regles',
+  faq: 'faq',
+  requests: 'demandes',
+  general: 'general',
+  voiceGeneral: 'general-vocal',
+  voiceAfk: 'afk',
+  reports: 'signalements',
+  autoModeration: 'auto-moderation',
+  behavior: 'comportement',
+  guardian: 'guardian',
+  roles: 'roles',
+  moderationLogs: 'logs-mod',
+  gameChannels: 'mes-channels',
+  gameList: 'ma-gamelist',
+  voiceCreate: 'creer-channel',
+  serverList: 'liste-serveurs',
+  serverManagement: 'gestion-serveurs',
+  configLogs: 'guardian-logs',
+  botConfig: 'bot',
+  membres: 'membres',
+  channelsConfig: 'channels',
+  vocauxConfig: 'vocaux',
+  jeux: 'jeux',
+  suggestions: 'suggestions',
+  annonces: 'annonces',
+  serveurs: 'serveurs',
+  securityUpdates: 'maj-securite',
+  guardianBackup: 'guardian-backup',
+  becomeMember: 'devenir-membre',
+  joinServer: 'rejoindre-notre-serveur'
+});
+
+const CHANNEL_NAMES = Object.freeze({
+  setupCategory: CATEGORIES.setup,
+  setupChannel: CHANNELS.setup,
+  welcome: CHANNELS.welcome,
+  rules: CHANNELS.rules,
+  faq: CHANNELS.faq,
+  requests: CHANNELS.requests,
+  general: CHANNELS.general,
+  voiceGeneral: CHANNELS.voiceGeneral,
+  voiceAfk: CHANNELS.voiceAfk,
+  reports: CHANNELS.reports,
+  autoModeration: CHANNELS.autoModeration,
+  behavior: CHANNELS.behavior,
+  guardian: CHANNELS.guardian,
+  roles: CHANNELS.roles,
+  moderationLogs: CHANNELS.moderationLogs,
+  gameChannels: CHANNELS.gameChannels,
+  gameList: CHANNELS.gameList,
+  voiceCreate: CHANNELS.voiceCreate,
+  serverList: CHANNELS.serverList,
+  serverManagement: CHANNELS.serverManagement,
+  configLogs: CHANNELS.configLogs,
+  botConfig: CHANNELS.botConfig,
+  membres: CHANNELS.membres,
+  channelsConfig: CHANNELS.channelsConfig,
+  vocauxConfig: CHANNELS.vocauxConfig,
+  jeux: CHANNELS.jeux,
+  suggestions: CHANNELS.suggestions,
+  annonces: CHANNELS.annonces,
+  serveurs: CHANNELS.serveurs,
+  securityUpdates: CHANNELS.securityUpdates,
+  becomeMember: CHANNELS.becomeMember,
+  joinServer: CHANNELS.joinServer
+});
+
+const GRADE_NAMES = Object.freeze({
+  invite: 'invite',
+  membre: 'membre',
+  moderateur: 'moderateur',
+  manager: 'manager',
+  owner: 'owner'
+});
+
+module.exports = {
+  NODE_ENV,
+  DISCORD_TOKEN,
+  CLIENT_ID: process.env.CLIENT_ID,
+  DATABASE_PATH: path.resolve(process.cwd(), process.env.DATABASE_PATH || './data/guardian.db'),
+  CATEGORIES,
+  CHANNELS,
+  CHANNEL_NAMES,
+  GRADE_NAMES
+};

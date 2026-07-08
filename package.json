@@ -1,0 +1,29 @@
+{
+  "name": "guardian-discord-bot",
+  "version": "0.23.12",
+  "prerelease": false,
+  "description": "Guardian Discord bot for gaming communities",
+  "main": "index.js",
+  "type": "commonjs",
+  "scripts": {
+    "run": "npm run start",
+    "dev": "node --watch index.js",
+    "start": "node index.js",
+    "deploy:commands": "node deploy-commands.js",
+    "test": "node --test",
+    "release": "node ../scripts/release.js",
+    "release:minor": "node ../scripts/release.js minor",
+    "release:major": "node ../scripts/release.js major",
+    "readme": "node ../scripts/generate-readme.js",
+    "readme:dry": "node ../scripts/generate-readme.js --dry",
+    "build:free": "node ../scripts/build-free.js",
+    "build:free:dry": "node ../scripts/build-free.js --dry-run"
+  },
+  "dependencies": {
+    "discord.js": "^14.26.4",
+    "dotenv": "^17.4.2"
+  },
+  "overrides": {
+    "undici": "^6.27.0"
+  }
+}
