@@ -1,6 +1,6 @@
 const { ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, ChannelType, PermissionFlagsBits } = require('discord.js');
 const { addServer } = require('./servers');
-const { getModerationRoleIds } = require('../../database/db');
+const { getModerationRoleIds, getDb } = require('../../database/db');
 const { CHANNELS } = require('../../config');
 const { findGuildTextChannelByName } = require('../utils/channels');
 const { replyEphemeral } = require('../utils/interactions');
@@ -37,6 +37,18 @@ function memberCanManageServers(interaction) {
   }
 
   return getServerManagerRoleIds(interaction.guildId).some((roleId) => roleCache.has(roleId));
+}
+
+/**
+ * Construit le bouton principal de la server list (cadenas si free).
+ * @param {string} guildId
+ * @returns {ButtonBuilder}
+ */
+function buildAddServerButton(guildId) {
+  return new ButtonBuilder()
+    .setCustomId('servers:add')
+    .setLabel('➕ Proposer un serveur')
+    .setStyle(ButtonStyle.Primary);
 }
 
 async function handleAddServerButton(interaction) {
@@ -100,4 +112,4 @@ async function handleServerModalSubmit(interaction) {
   await replyEphemeral(interaction, t(guildId, 'init.serverProposed', { name }));
 }
 
-module.exports = { handleAddServerButton, handleServerModalSubmit, memberCanManageServers };
+module.exports = { handleAddServerButton, handleServerModalSubmit, memberCanManageServers, buildAddServerButton };

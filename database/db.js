@@ -298,7 +298,7 @@ const MIGRATIONS = [
         )
       `);
     }
-  }
+  },
 ];
 
 function migrateDatabase() {
@@ -385,6 +385,7 @@ function getModerationRoleIds(guildId) {
   return rows.map((row) => row.role_id).filter(Boolean);
 }
 
+
 module.exports = {
   initDatabase,
   migrateDatabase,
@@ -393,5 +394,5 @@ module.exports = {
   getConfig,
   setGrade,
   getGrade,
-  getModerationRoleIds
+  getModerationRoleIds,
 };

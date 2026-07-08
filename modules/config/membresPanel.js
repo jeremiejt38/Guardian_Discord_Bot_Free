@@ -27,7 +27,7 @@ const IDS = Object.freeze({
   joinPresentationModal: 'membres:joinpresentation:modal',
   editExpulsion: 'membres:expulsion:edit',
   expulsionModal: 'membres:expulsion:modal',
-  toggleExpulsion: 'membres:expulsion:toggle'
+  toggleExpulsion: 'membres:expulsion:toggle',
 });
 
 function hasManagerGrade(member, guildId) {
@@ -73,7 +73,8 @@ function buildRows(guildId) {
     new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId(IDS.editDelay).setLabel(t(guildId, 'config.membres.editDelay')).setStyle(ButtonStyle.Primary),
       new ButtonBuilder().setCustomId(IDS.editWelcome).setLabel(t(guildId, 'config.membres.editWelcome')).setStyle(ButtonStyle.Primary),
-      new ButtonBuilder().setCustomId(IDS.editJoinPresentation).setLabel('🌟 Présentation #rejoindre').setStyle(ButtonStyle.Primary)
+      new ButtonBuilder().setCustomId(IDS.editJoinPresentation).setLabel('🌟 Présentation #rejoindre').setStyle(ButtonStyle.Primary),
+      welcomeDmBtn
     ),
     new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId(IDS.toggleBio).setLabel(`Bio: ${bio ? 'ON' : 'OFF'}`).setStyle(bio ? ButtonStyle.Success : ButtonStyle.Secondary),
@@ -210,6 +211,7 @@ async function handleMembresInteraction(interaction) {
     return true;
   }
 
+
   if (interaction.isButton() && customId === IDS.editJoinPresentation) {
     const current = String(getGuildSetting(guildId, 'joinserver', 'presentation', '') || '');
     const modal = new ModalBuilder().setCustomId(IDS.joinPresentationModal).setTitle('Présentation #rejoindre-notre-serveur')
@@ -238,4 +240,4 @@ async function handleMembresInteraction(interaction) {
   return false;
 }
 
-module.exports = { seedMembresPanel, handleMembresInteraction };
+module.exports = { seedMembresPanel, handleMembresInteraction, buildRows };

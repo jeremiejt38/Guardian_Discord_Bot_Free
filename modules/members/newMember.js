@@ -82,7 +82,7 @@ async function handleNewMember(member) {
 
       lines.push(`_Ce message est envoyé automatiquement par Guardian Bot._`);
 
-      await member.send(lines.join('\n'));
+        await member.send(lines.join('\n'));
     } catch {
     }
   } catch (error) {

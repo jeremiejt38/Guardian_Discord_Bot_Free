@@ -10,8 +10,8 @@ const { logConfigChange } = require('./configLogger');
 const TOGGLES = [
   { key: 'afk_enabled', label: 'Canal AFK', id: 'channels:toggle:afk' },
   { key: 'galerie_enabled', label: 'Galerie par jeu', id: 'channels:toggle:galerie' },
-  { key: 'suggestions_enabled', label: 'Module Suggestions', id: 'channels:toggle:suggestions' },
-  { key: 'serveurs_enabled', label: 'Module Liste-Serveurs', id: 'channels:toggle:serveurs' },
+  { key: 'suggestions_enabled', label: 'Module Suggestions', id: 'channels:toggle:suggestions', premiumFeature: 'suggestions_forum' },
+  { key: 'serveurs_enabled', label: 'Module Liste-Serveurs', id: 'channels:toggle:serveurs', premiumFeature: 'server_list' },
   { key: 'statusbot_enabled', label: 'Module Statut-Bot', id: 'channels:toggle:statusbot' }
 ];
 
@@ -87,4 +87,4 @@ async function handleChannelsInteraction(interaction) {
   return true;
 }
 
-module.exports = { seedChannelsPanel, handleChannelsInteraction };
+module.exports = { seedChannelsPanel, handleChannelsInteraction, buildRows, buildPanelContent };

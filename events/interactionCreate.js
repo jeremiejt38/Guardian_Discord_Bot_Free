@@ -50,6 +50,7 @@ const { CHANNELS } = require('../config');
 const { findGuildTextChannelByName } = require('../modules/utils/channels');
 const { handleInteractionError } = require('../modules/utils/discordErrors');
 const { checkRateLimit } = require('../modules/utils/rateLimit');
+const { handlePremiumGateClick } = require('../modules/tier/premiumGate');
 const logger = require('../modules/logs/logger');
 
 const commandCooldowns = new Map();
@@ -86,6 +87,12 @@ module.exports = {
       await command.execute(interaction);
       return;
     }
+
+    if (interaction.isButton() && interaction.customId?.startsWith('premium:gate:')) {
+      await handlePremiumGateClick(interaction);
+      return;
+    }
+
 
     if (interaction.isButton() && interaction.customId?.startsWith('bot:admin:bootstrap:')) {
       const action = interaction.customId.split(':')[3];

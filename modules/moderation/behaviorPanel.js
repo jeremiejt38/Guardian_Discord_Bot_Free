@@ -41,6 +41,7 @@ function buildPanelContent(guildId) {
   const thresholds = getBehaviorThresholds(guildId);
   const lines = [`**${t(guildId, 'behavior.panelTitle')}**\n`];
 
+
   if (thresholds.length === 0) {
     lines.push(t(guildId, 'behavior.noThresholds'));
   } else {
@@ -53,6 +54,7 @@ function buildPanelContent(guildId) {
 }
 
 function buildThresholdRows(guildId) {
+
   const rows = [
     new ActionRowBuilder().addComponents(
       new ButtonBuilder()
