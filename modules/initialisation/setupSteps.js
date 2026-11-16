@@ -8,13 +8,16 @@ const {
 } = require('discord.js');
 const { GRADE_NAMES, CHANNELS } = require('../../config');
 const { getGuildSetting, setGuildSetting } = require('../config/settings');
+const logger = require('../logs/logger');
 const {
   ORDERED_GRADES,
   REQUIRED_GRADES,
   getGradeMappings,
 } = require('./gradeMapping');
 const { listSetupGames, addSetupGame } = require('./setupGames');
+const _gd = require('./setupGamesDetect');
 const { t } = require('../../locales');
+const { isPremiumFeatureEnabled, buildPremiumLockButton } = require('../tier/premiumGateUI');
 
 // ─── Step 1 helpers ──────────────────────────────────────────────────────────
 
@@ -209,6 +212,8 @@ function setStep2Config(guildId, config) {
   setGuildSetting(guildId, 'guides', 'enabled', config.guidesEnabled);
 }
 
+const SYSCHANNEL_CHOICES = ['disabled', 'general', 'keep'];
+const SYSCHANNEL_LABELS = { disabled: '🔕 Désactivé', general: '📢 #general', keep: '📌 Garder actuel' };
 
 function buildStep2Content(guildId, guild, { TOTAL_STEPS, onOff: _onOff }) {
   const c = getStep2Config(guildId);
@@ -238,6 +243,19 @@ function buildStep2Content(guildId, guild, { TOTAL_STEPS, onOff: _onOff }) {
     `📚 **Guides** — ${dot(c.guidesEnabled)}`,
     '> Génère une catégorie de guides de serveur (démarrage, promotion, parrainage, jeux, commandes).',
     '',
+    isPremiumFeatureEnabled(guildId)
+      ? [
+          '### ⚙️ Paramètres Discord',
+          `🔇 **Canal AFK** — ${afkChannelMention} — délai : **${afkTimeoutLabel}**`,
+          '> Guardian applique ce délai dans les paramètres Discord. Change le délai avec le bouton ci-dessous.',
+          '',
+          `📣 **Notifications système** — ${syschanLabel} *(${syschanCurrent})*`,
+          '> Messages Discord de bienvenue/boost. Choisir le canal ou désactiver.',
+          '',
+          `🌐 **Langue du serveur** — ${localeStatus}`,
+          '> Si différentes, Guardian peut synchroniser la langue Discord avec ton choix Guardian.'
+        ].join('\n')
+      : '### 🔒 Paramètres Discord avancés\nCes options sont réservées à **Guardian Premium**.\nCliquez sur le bouton ci-dessous pour en savoir plus.'
   ].join('\n');
 }
 
@@ -259,6 +277,12 @@ function buildStep2Components(guildId, guild, { CUSTOM_IDS, buildNavRow }) {
     new ButtonBuilder().setCustomId(CUSTOM_IDS.toggleGuides).setStyle(c.guidesEnabled ? ButtonStyle.Success : ButtonStyle.Secondary)
       .setLabel('📚 Guides')
   );
+  const discordRow = isPremiumFeatureEnabled(guildId)
+    ? (() => {
+      })()
+    : new ActionRowBuilder().addComponents(
+        buildPremiumLockButton('discord_settings', 'Paramètres Discord avancés')
+      );
   return [row, row2, discordRow, buildNavRow(guildId, 2)];
 }
 
@@ -266,7 +290,7 @@ function buildStep2Components(guildId, guild, { CUSTOM_IDS, buildNavRow }) {
 
 const CHANNEL_SLOTS = Object.freeze([
   { key: 'voiceGeneral',    label: 'Général',           desc: 'Salon vocal principal — Guardian y crée des rooms temporaires.',                                settingSection: 'channels', settingKey: 'voice_general_id',             emoji: '🔊', addedInVersion: '0.1.0' },
-  { key: 'voiceAfk',       label: 'Vocal AFK',          desc: 'Salon vocal AFK — les membres inactifs y sont déplacés automatiquement.',                     settingSection: 'channels', settingKey: 'voice_afk_id',                  emoji: '🔇', addedInVersion: '0.1.0' },
+  { key: 'voiceAfk',       label: 'Vocal AFK',          desc: 'Salon vocal AFK — les membres inactifs y sont déplacés automatiquement.',                     settingSection: 'channels', settingKey: 'voice_afk_id',                  emoji: '🔇', addedInVersion: '0.1.0', moduleFlag: 'afkEnabled' },
   { key: 'general',        label: '#général',            desc: 'Channel de discussion principale de la communauté.',                                          settingSection: 'channels', settingKey: 'general_channel_id',            emoji: '💬', addedInVersion: '0.1.0' },
   { key: 'rules',          label: '#règles',             desc: 'Channel où le règlement du serveur est affiché.',                                             settingSection: 'channels', settingKey: 'rules_channel_id',              emoji: '📜', communityOnly: true,  addedInVersion: '0.1.0' },
   { key: 'moderationLogs', label: '#logs-modération',   desc: 'Channel modérateurs — logs Guardian. Correspond au "Moderator Only" Discord.',                 settingSection: 'channels', settingKey: 'moderation_logs_channel_id',    emoji: '🛡️', communityOnly: true,  addedInVersion: '0.1.0' },
@@ -291,11 +315,15 @@ function isCommunityGuild(guild) {
   return guild?.features?.includes('COMMUNITY') ?? false;
 }
 
-function getActiveSlotsForInstall(_guildId, guild, CHANNEL_SLOTS_ARG, isCommunityGuildFn) {
+function getActiveSlotsForInstall(guildId, guild, CHANNEL_SLOTS_ARG, isCommunityGuildFn) {
   const slots = CHANNEL_SLOTS_ARG || CHANNEL_SLOTS;
   const communityCheck = isCommunityGuildFn || isCommunityGuild;
-  if (!guild || communityCheck(guild)) return slots;
-  return slots.filter((s) => !s.communityOnly);
+  const config = getStep2Config(guildId);
+  return slots.filter((s) => {
+    if (s.communityOnly && !communityCheck(guild)) return false;
+    if (s.moduleFlag && !config[s.moduleFlag]) return false;
+    return true;
+  });
 }
 function normalizeChannelName(name) {
   return name.toLowerCase()
@@ -407,6 +435,9 @@ function buildChannelOptions(guild, slot) {
     .sort((a, b) => b.score - a.score || a.c.name.localeCompare(b.c.name))
     .slice(0, 25)
     .map(({ c }) => ({ label: `${c.name}`.slice(0, 25), value: c.id, description: `#${c.name}`.slice(0, 50) }));
+  if (channels.length === 0) {
+    logger.warn('[buildChannelOptions] no options', { guildId: guild?.id, slotKey: slot.key, filteredCount: allChannels.length, scoredCount: scored.length });
+  }
   return channels.length > 0 ? channels : [{ label: 'Aucun channel compatible', value: 'none', description: 'Guardian en créera un automatiquement' }];
 }
 
@@ -465,6 +496,11 @@ function buildStep3ChannelsComponents(guildId, guild, { CUSTOM_IDS, CHANNEL_SLOT
     .setDisabled(hasNone)
     .addOptions(options);
 
+  const searchButton = new ButtonBuilder()
+    .setCustomId(`${CUSTOM_IDS.channelSearch}:${slot.key}`)
+    .setStyle(ButtonStyle.Secondary)
+    .setLabel('🔍 Rechercher');
+
   const isRequired = slot.key === 'general' || slot.key === 'voiceGeneral' || (slot.key === 'rules' && isCommunityGuild(guild));
   const isLastSlot = cursor >= slots.length - 1;
   const ignoredSlots = getIgnoredChannelSlots(guildId);
@@ -493,7 +529,8 @@ function buildStep3ChannelsComponents(guildId, guild, { CUSTOM_IDS, CHANNEL_SLOT
     );
   }
 
-  return [selectRow, navRow, buildNavRow(guildId, 3)];
+  const searchRow = new ActionRowBuilder().addComponents(searchButton);
+  return [selectRow, searchRow, navRow, buildNavRow(guildId, 3)];
 }
 
 // ─── Step 4 helpers (membres) ─────────────────────────────────────────────────
@@ -553,6 +590,15 @@ function buildStep4Content(guildId, guild, { TOTAL_STEPS, gradeLabel, onOff }) {
     '> Message envoyé en privé à chaque nouveau membre qui rejoint le serveur.',
     (() => { const p = c.joinServerPresentation; const prev = p ? `"${p.slice(0, 60)}${p.length > 60 ? '…' : ''}"` : '*non défini*'; return `🌟 **Présentation #rejoindre-notre-serveur** : ${prev}`; })(),
     '> Texte personnalisé affiché dans le channel de recrutement des invités.',
+    ...(isCommunity
+      ? (
+          [
+              '',
+              '### 🔒 Paramètres Discord (serveur Community)',
+              '> Réservés à **Guardian Premium**.',
+              '> Utilisez le bouton ci-dessous pour en savoir plus.'
+            ])
+      : [])
   ].join('\n');
 }
 
@@ -566,11 +612,9 @@ function buildStep4Components(guildId, guild, { CUSTOM_IDS, gradeLabel, buildNav
     new ButtonBuilder().setCustomId(CUSTOM_IDS.cyclePromotionReviewerGrade).setStyle(ButtonStyle.Secondary)
       .setLabel(`🔍 Réviseur: ${gradeLabel(c.reviewerGrade)}`)
   );
-  const delay = new ActionRowBuilder().addComponents(
+  const delayAndExpulsion = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(CUSTOM_IDS.decreasePromotionDelay).setStyle(ButtonStyle.Secondary).setLabel('⏱️ -12h'),
-    new ButtonBuilder().setCustomId(CUSTOM_IDS.increasePromotionDelay).setStyle(ButtonStyle.Secondary).setLabel('⏱️ +12h')
-  );
-  const expulsion = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(CUSTOM_IDS.increasePromotionDelay).setStyle(ButtonStyle.Secondary).setLabel('⏱️ +12h'),
     new ButtonBuilder().setCustomId(CUSTOM_IDS.toggleInviteExpulsion).setStyle(c.inviteExpulsionEnabled ? ButtonStyle.Success : ButtonStyle.Secondary)
       .setLabel('🚪 Expulsion'),
     new ButtonBuilder().setCustomId(CUSTOM_IDS.decreaseInviteExpulsionDays).setStyle(ButtonStyle.Secondary).setLabel('📅 -1j'),
@@ -582,7 +626,15 @@ function buildStep4Components(guildId, guild, { CUSTOM_IDS, gradeLabel, buildNav
     new ButtonBuilder().setCustomId(CUSTOM_IDS.editJoinPresentation).setStyle(ButtonStyle.Secondary)
       .setLabel('🌟 Présentation #rejoindre')
   );
-  const rows = [toggles, delay, expulsion, welcomeBtn];
+  const rows = [toggles, delayAndExpulsion, welcomeBtn];
+  if (c._isCommunity) {
+    if (isPremiumFeatureEnabled(guildId)) {
+    } else {
+      rows.push(new ActionRowBuilder().addComponents(
+        buildPremiumLockButton('discord_settings', 'Paramètres Discord Community')
+      ));
+    }
+  }
   rows.push(buildNavRow(guildId, 4));
   return rows;
 }
@@ -689,6 +741,16 @@ function setGamesPage(guildId, page) {
   return safe;
 }
 
+function getGamesLayoutMode(guildId) {
+  return getGuildSetting(guildId, 'games', 'layout_mode', 'by-type');
+}
+
+function setGamesLayoutMode(guildId, mode) {
+  const valid = mode === 'by-game' ? 'by-game' : 'by-type';
+  setGuildSetting(guildId, 'games', 'layout_mode', valid);
+  return valid;
+}
+
 function ensureAtLeastOneSetupGame(guildId) {
   const games = listSetupGames(guildId);
   if (games.length > 0) return games;
@@ -702,10 +764,38 @@ function getSteamCycleValue(value) {
   return sequence[idx < 0 ? 0 : (idx + 1) % sequence.length];
 }
 
-function buildStep6Content_Games(guildId, { TOTAL_STEPS }) {
+function getGamesSubstep(guildId) {
+  return getGuildSetting(guildId, 'setup', 'games_substep', null);
+}
+
+function setGamesSubstep(guildId, substep) {
+  setGuildSetting(guildId, 'setup', 'games_substep', substep);
+}
+
+function determineGamesSubstep(guildId, guild) {
+  const substep = getGamesSubstep(guildId);
+  if (substep) return substep;
+  // Par défaut : détection automatique au premier affichage de l'étape 6
+  if (guild) return 'detect';
+  return listSetupGames(guildId).length > 0 ? 'edit' : 'detect';
+}
+
+function safeGamesSubstepForRender(guildId, guild, ctx) {
+  const substep = determineGamesSubstep(guildId, guild);
+  if (substep === 'detect' && !guild) return 'edit';
+  return substep;
+}
+
+function buildStep6EditorContent(guildId, { TOTAL_STEPS }) {
   const games = listSetupGames(guildId);
+  const layoutMode = getGamesLayoutMode(guildId);
+  const layoutLabel = layoutMode === 'by-game'
+    ? '📁 Une catégorie par jeu (tous les channels du jeu regroupés)'
+    : '🗂️ Une catégorie par type de channel (texte / galerie / updates)';
   const lines = [
     `## ${t('setup.step6Title', {}, { guildId })} (6/${TOTAL_STEPS})`,
+    '',
+    `**Mode d'organisation :** ${layoutLabel}`,
     '',
     '🎮 **Pourquoi une liste de jeux ?**',
     '> Guardian utilise cette liste pour créer automatiquement les channels liés à chaque jeu :',
@@ -738,19 +828,24 @@ function buildStep6Content_Games(guildId, { TOTAL_STEPS }) {
   return lines.join('\n');
 }
 
-function buildStep6Components_Games(guildId, { CUSTOM_IDS, buildNavRow }) {
+function buildStep6EditorComponents(guildId, { CUSTOM_IDS, buildNavRow }) {
   const games = listSetupGames(guildId);
   const page = getGamesPage(guildId);
   const totalPages = Math.max(1, Math.ceil(games.length / GAMES_PAGE_SIZE));
   const pageGames = games.slice(page * GAMES_PAGE_SIZE, (page + 1) * GAMES_PAGE_SIZE);
   const rows = [];
+  const layoutMode = getGamesLayoutMode(guildId);
 
   const addRowButtons = [
     new ButtonBuilder().setCustomId(CUSTOM_IDS.addGame).setStyle(ButtonStyle.Primary).setLabel('➕ Ajouter un jeu'),
     new ButtonBuilder().setCustomId(CUSTOM_IDS.gamePagePrev).setStyle(ButtonStyle.Secondary)
       .setLabel('◀').setDisabled(page === 0),
     new ButtonBuilder().setCustomId(CUSTOM_IDS.gamePageNext).setStyle(ButtonStyle.Secondary)
-      .setLabel(`▶ (${page + 1}/${totalPages})`).setDisabled(page >= totalPages - 1)
+      .setLabel(`▶ (${page + 1}/${totalPages})`).setDisabled(page >= totalPages - 1),
+    new ButtonBuilder()
+      .setCustomId(CUSTOM_IDS.toggleGameLayoutMode)
+      .setStyle(ButtonStyle.Secondary)
+      .setLabel(layoutMode === 'by-game' ? '🗂️ Par type' : '📁 Par jeu')
   ];
   if (games.length > 0) {
     addRowButtons.push(new ButtonBuilder().setCustomId(CUSTOM_IDS.clearAllGames).setStyle(ButtonStyle.Danger).setLabel('🧹 Tout effacer'));
@@ -785,6 +880,22 @@ function buildStep6Components_Games(guildId, { CUSTOM_IDS, buildNavRow }) {
   }
   rows.push(buildNavRow(guildId, 6));
   return rows;
+}
+
+function buildStep6Content_Games(guildId, guild, ctx) {
+  const substep = safeGamesSubstepForRender(guildId, guild, ctx);
+  if (substep === 'detect') return _gd.buildGameDetectContent(guildId, guild, ctx.TOTAL_STEPS);
+  if (substep === 'review') return _gd.buildGameReviewContent(guildId);
+  if (substep === 'link') return _gd.buildGameLinkContent(guildId);
+  return buildStep6EditorContent(guildId, ctx);
+}
+
+function buildStep6Components_Games(guildId, guild, ctx) {
+  const substep = safeGamesSubstepForRender(guildId, guild, ctx);
+  if (substep === 'detect') return _gd.buildGameDetectComponents(guild);
+  if (substep === 'review') return _gd.buildGameReviewComponents(guildId);
+  if (substep === 'link') return _gd.buildGameLinkComponents(guildId, guild, ctx.buildNavRow, 6);
+  return buildStep6EditorComponents(guildId, ctx);
 }
 
 // ─── Step 7 helpers (modération) ─────────────────────────────────────────────
@@ -828,8 +939,8 @@ function buildStep7Content(guildId, { TOTAL_STEPS, onOff }) {
     `## ${t('setup.step7Title', {}, { guildId })} (7/${TOTAL_STEPS})`,
     t('setup.step7Instructions', {}, { guildId }),
     '',
-    `⚖️ **Score comportemental** — ${onOff(c.behaviorScoreEnabled)}`,
-    '> Note chaque membre selon ses messages, sanctions et ancienneté.',
+    `⚖️ **Score comportemental** — ${isPremiumFeatureEnabled(guildId) ? onOff(c.behaviorScoreEnabled) : '🔒 Premium'}`,
+    '> Note chaque membre selon ses messages, sanctions et ancienneté. Réservé à Guardian Premium.',
     '',
     `🛡️ **Anti-spam** — max ${c.spamThreshold} msg / 3s`,
     '> Messages supprimés automatiquement si le seuil est dépassé.',
@@ -848,8 +959,10 @@ function buildStep7Content(guildId, { TOTAL_STEPS, onOff }) {
 function buildStep7Components(guildId, { CUSTOM_IDS, buildNavRow }) {
   const c = getStep7Config(guildId);
   const scoreRow = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(CUSTOM_IDS.toggleBehaviorScore).setStyle(c.behaviorScoreEnabled ? ButtonStyle.Success : ButtonStyle.Secondary)
-      .setLabel('⚖️ Score comport.'),
+    isPremiumFeatureEnabled(guildId)
+      ? new ButtonBuilder().setCustomId(CUSTOM_IDS.toggleBehaviorScore).setStyle(c.behaviorScoreEnabled ? ButtonStyle.Success : ButtonStyle.Secondary)
+          .setLabel('⚖️ Score comport.')
+      : buildPremiumLockButton('behavior_sanctions', 'Score comportemental'),
     new ButtonBuilder().setCustomId(CUSTOM_IDS.toggleBlacklistWarn).setStyle(ButtonStyle.Secondary)
       .setLabel(`🚫 Blacklist: ${c.blacklistWarn ? 'Warn' : 'Silent'}`),
     new ButtonBuilder().setCustomId(CUSTOM_IDS.cycleLogsLevel).setStyle(ButtonStyle.Secondary)
@@ -930,22 +1043,17 @@ function buildCommunityCheckContent(guildId, guild, { TOTAL_STEPS }) {
   const req = (ok, label) => `${ok ? '✅' : '❌'} ${label}`;
 
   return [
-    `## ⚠️ Serveur classique détecté (${TOTAL_STEPS > 0 ? `${TOTAL_STEPS}/` : ''}${TOTAL_STEPS})`,
+    `## ⚠️ Serveur classique détecté (3/${TOTAL_STEPS})`,
     '',
     '> Ton serveur n\'est pas encore en mode **Communautaire**.',
-    '> Certains salons Guardian sont exclusifs à ce mode et seront ignorés si tu continues sans l\'activer.',
+    '> **Ce n\'est pas obligatoire.** Guardian fonctionne très bien sans — seules certaines fonctionnalités Discord natives seront désactivées.',
+    '> Active le mode Communautaire uniquement si tu veux utiliser : #règles officiel, #logs-modération, événements, annonces, salons Stage, etc.',
     '',
-    '### 🔒 Salons exclusifs au mode Communautaire',
+    '### 🔒 Fonctionnalités désactivées sans mode Communautaire',
     '> 📜 **#règles** — salon officiel du règlement (requis par Discord)',
-    '> 🛡️ **#logs-modération** — corresponds au salon « Moderator Only » de Discord',
+    '> 🛡️ **#logs-modération** — correspond au salon « Moderator Only » de Discord',
     '> 🔒 **#maj-securite** — reçoit les mises à jour de sécurité Discord',
-    '',
-    '### ✨ Ce que le mode Communautaire apporte',
-    '> 📣 Salons **Annonces** (abonnements croisés entre serveurs)',
-    '> 🎪 Accès aux **Événements** programmés (agenda communautaire)',
-    '> 📊 **Insights serveur** — statistiques d\'audience et de croissance',
-    '> 🎭 **Salons Stage** (conférences audio publiques)',
-    '> 🏷️ **Répertoire Discord** — ton serveur devient découvrable',
+    '> 🎪 **Événements**, 📣 **annonces** et 🎭 **salons Stage** resteront inaccessibles',
     '',
     '### ✅ Prérequis pour activer la Communauté',
     req(memberCount >= 0, 'Serveur créé (toujours vrai)'),
@@ -953,13 +1061,7 @@ function buildCommunityCheckContent(guildId, guild, { TOTAL_STEPS }) {
     req(hasRules, 'Salon « Règles » désigné'),
     req(hasModChannel, 'Salon « Mises à jour de la communauté » désigné'),
     '',
-    '### ⚙️ Comment activer la Communauté',
-    '> 1. Ouvre les **Paramètres du serveur** (roue dentée à côté du nom)',
-    '> 2. Menu **Activer la communauté** → clique sur **Commencer**',
-    '> 3. Suis les étapes Discord (vérification, règles, sécurité)',
-    '> 4. Reviens ici et clique **🔄 Vérifier à nouveau**',
-    '',
-    '*Tu peux aussi continuer sans activer — les salons communautaires seront simplement ignorés.*'
+    '*Tu peux continuer sans activer — les fonctionnalités communautaires seront simplement ignorées.*'
   ].join('\n');
 }
 
@@ -970,6 +1072,10 @@ function buildCommunityCheckComponents(CUSTOM_IDS) {
         .setCustomId(CUSTOM_IDS.communityCheckRetry)
         .setStyle(ButtonStyle.Primary)
         .setLabel('🔄 Vérifier à nouveau'),
+      new ButtonBuilder()
+        .setCustomId(CUSTOM_IDS.communityCheckHelp)
+        .setStyle(ButtonStyle.Secondary)
+        .setLabel('ℹ️ Comment activer'),
       new ButtonBuilder()
         .setCustomId(CUSTOM_IDS.communityCheckContinue)
         .setStyle(ButtonStyle.Secondary)
@@ -1028,8 +1134,13 @@ module.exports = {
   setGamesPage,
   ensureAtLeastOneSetupGame,
   getSteamCycleValue,
+  getGamesSubstep,
+  setGamesSubstep,
+  determineGamesSubstep,
   buildStep6Content_Games,
   buildStep6Components_Games,
+  buildStep6EditorContent,
+  buildStep6EditorComponents,
   // Step 7
   LOGS_LEVELS,
   cycleLogsLevel,
@@ -1038,8 +1149,6 @@ module.exports = {
   buildStep7Content,
   buildStep7Components,
   // Step 8 (premium)
-  buildStep8DiscordContent,
-  buildStep8DiscordComponents,
   // Step 9
   buildStep9Summary,
   buildStep9Components,

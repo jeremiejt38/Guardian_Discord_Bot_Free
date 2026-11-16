@@ -1,3 +1,4 @@
+const { MessageFlags } = require('discord.js');
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder } = require('discord.js');
 const { getDb } = require('../../database/db');
 const { CHANNEL_NAMES } = require('../../config');
@@ -26,21 +27,35 @@ function toSelectedIds(rows) {
   return new Set(rows.map((row) => Number(row.game_id)));
 }
 
-function buildGameSelect(guildId, games, selected) {
-  const options = games.slice(0, 25).map((game) => ({
-    label: game.name.slice(0, 100),
+function buildGameSelect(guildId, games, selected, page = 0) {
+  const options = games.map((game) => ({
+    label: game.name,
     value: String(game.game_id),
     default: selected.has(Number(game.game_id))
   }));
 
-  return new ActionRowBuilder().addComponents(
-    new StringSelectMenuBuilder()
-      .setCustomId(IDS.select)
-      .setPlaceholder(t('games.selectPlaceholder', {}, { guildId }))
-      .setMinValues(0)
-      .setMaxValues(options.length)
-      .addOptions(options)
+  const { buildPaginatedSelect } = require('../utils/paginatedSelect');
+  const { rows } = buildPaginatedSelect(
+    options,
+    IDS.select,
+    t('games.selectPlaceholder', {}, { guildId }),
+    page,
+    { minValues: 0, maxValues: Math.min(options.length, 25) }
   );
+  return rows;
+}
+
+async function handleGameOptInPage(interaction) {
+  const { parsePaginatedCustomId } = require('../utils/paginatedSelect');
+  const { targetPage } = parsePaginatedCustomId(interaction.customId);
+  if (targetPage === null || Number.isNaN(targetPage)) return true;
+  const games = getGuildGames(interaction.guildId);
+  const selected = toSelectedIds(getMemberGames(interaction.guildId, interaction.user.id));
+  await interaction.update({
+    content: t('games.selectPrompt', {}, { guildId: interaction.guildId }),
+    components: buildGameSelect(interaction.guildId, games, selected, targetPage)
+  });
+  return true;
 }
 
 async function syncGameRoles(member, guildGames, previousIds, nextIds) {
@@ -119,13 +134,17 @@ async function handleGamesInteraction(interaction) {
     const selected = toSelectedIds(getMemberGames(interaction.guildId, interaction.user.id));
     await interaction.reply({
       content: t('games.selectPrompt', {}, { guildId: interaction.guildId }),
-      components: [buildGameSelect(interaction.guildId, games, selected)],
-      ephemeral: true
+      components: buildGameSelect(interaction.guildId, games, selected, 0),
+      flags: MessageFlags.Ephemeral
     });
     return true;
   }
 
-  if (interaction.isStringSelectMenu() && interaction.customId === IDS.select) {
+  if (interaction.isButton() && interaction.customId.startsWith(`${IDS.select}:page:`)) {
+    return handleGameOptInPage(interaction);
+  }
+
+  if (interaction.isStringSelectMenu() && interaction.customId.startsWith(`${IDS.select}:`)) {
     const member = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
     if (!member) {
       await replyEphemeral(interaction, t('games.memberMissing', {}, { guildId: interaction.guildId }));

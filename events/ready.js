@@ -11,8 +11,9 @@ const { ensureRequestsPanelHasGameButton } = require('../modules/games/gameReque
 const { ensureRequestsPanel } = require('../modules/members/memberRequests');
 const { upsertStatusEmbed } = require('../modules/config/botPanel');
 const { getGuildSetting, setGuildSetting } = require('../modules/config/settings');
-const { setConfig, getConfig } = require('../database/db');
+const { setConfig, getConfig, getDb, deleteGuildData } = require('../database/db');
 const { runChannelMigrations } = require('../modules/migrations/channelMigrations');
+const { runVersionedMigrations } = require('../modules/migrations/versionedMigrations');
 const { restoreConfigFromBackup, saveConfigBackup } = require('../modules/config/configBackup');
 const { getInstallContext } = require('../modules/initialisation/detectInstallContext');
 const { CATEGORIES, CHANNELS } = require('../config');
@@ -20,9 +21,13 @@ const { findCategoryByName, findGuildTextChannelByName } = require('../modules/u
 const logger = require('../modules/logs/logger');
 const { version } = require('../package.json');
 const { notifyBotAdminUpdate, getBotAdminId, bootstrapAdminIfNeeded } = require('../modules/admin/botUpdater');
+const { sendAdminDmMessage } = require('../modules/admin/adminPanel');
+const { guardAsync } = require('../modules/utils/intervalGuard');
 const { notifyAllGuildsNewOptions } = require('../modules/migrations/newOptionsNotifier');
 const { initAlerts, alertGuildJoin, alertGuildLeave } = require('../modules/admin/adminAlerts');
 const { openOrRefreshPanel, pushPanelToBottom } = require('../modules/admin/adminPanel');
+const { checkMissingPermissions } = require('../modules/admin/permissionStartupCheck');
+const { startExpirationChecker } = require('../modules/tier/expirationChecker');
 
 module.exports = {
   name: 'clientReady',
@@ -35,6 +40,22 @@ module.exports = {
       await bootstrapAdminIfNeeded(client, client.guilds.cache).catch(() => {});
     } else {
       await openOrRefreshPanel(client).catch(() => {});
+    }
+
+    await checkMissingPermissions(client).catch((err) => logger.error('Permission startup check failed', err));
+
+    // Purge des guilds orphelines : lignes DB restantes après un kick/ban du bot
+    try {
+      const known = new Set(client.guilds.cache.keys());
+      const stale = getDb().prepare('SELECT guild_id FROM guilds').all()
+        .map((r) => r.guild_id)
+        .filter((id) => !known.has(id));
+      for (const id of stale) {
+        deleteGuildData(id);
+        logger.info(`Purged stale guild data for ${id}`);
+      }
+    } catch (err) {
+      logger.error('Stale guild purge failed', err);
     }
 
     for (const guild of client.guilds.cache.values()) {
@@ -74,9 +95,16 @@ module.exports = {
                 `> Pour finaliser l'installation, reprends la configuration là où tu t'es arrêté.`,
                 setupLink ? `\n🔗 **[Reprendre la configuration](${setupLink})**` : `\n> Rends-toi dans le channel **#${CHANNELS.setup}** sur ton serveur.`
               ].join('\n');
-              await ownerUser.send(msg).catch(() =>
-                logger.warn(`Ready: could not send setup_incomplete DM to ${ownerId} for guild ${guild.id}`)
-              );
+              const isAdmin = ownerId === getBotAdminId();
+              if (isAdmin) {
+                await sendAdminDmMessage(client, { content: msg }).catch(() =>
+                  logger.warn(`Ready: could not send setup_incomplete admin DM to ${ownerId} for guild ${guild.id}`)
+                );
+              } else {
+                await ownerUser.send(msg).catch(() =>
+                  logger.warn(`Ready: could not send setup_incomplete DM to ${ownerId} for guild ${guild.id}`)
+                );
+              }
               logger.info(`Guild ${guild.id}: setup_incomplete DM sent to ${ownerId}`);
             }
           }
@@ -88,6 +116,7 @@ module.exports = {
         await seedGuildMessages(guild).catch(() => undefined);
 
         await runChannelMigrations(guild);
+        await runVersionedMigrations(guild).catch((err) => logger.error(`Failed versioned migrations for guild ${guild.id}`, err));
 
         const lastVersion = getGuildSetting(guild.id, 'bot', 'last_version', null);
         if (lastVersion !== version) {
@@ -109,23 +138,23 @@ module.exports = {
     if (isUpdate) {
       setConfig(GLOBAL, 'bot', 'last_version', version);
       await notifyBotAdminUpdate(client, lastGlobalVersion, version).catch(() => {});
-      await pushPanelToBottom(client).catch(() => {});
     } else if (!lastGlobalVersion) {
       setConfig(GLOBAL, 'bot', 'last_version', version);
     }
 
     await notifyAllGuildsNewOptions(client).catch(() => {});
 
-    setInterval(() => {
+    setInterval(guardAsync(async () => {
       for (const guild of client.guilds.cache.values()) {
         upsertStatusEmbed(guild).catch(() => {});
       }
-    }, 5 * 60 * 1000);
+    }), 5 * 60 * 1000);
 
     startInviteExpulsionJob(client);
     startChangelogTimer();
     startServerMonitor(client, 60 * 1000);
-    setInterval(() => runPassiveScoreRegen(client).catch((err) => logger.error('Passive regen error', err)), 60 * 60 * 1000);
+    startExpirationChecker(client);
+    setInterval(guardAsync(async () => runPassiveScoreRegen(client).catch((err) => logger.error('Passive regen error', err))), 60 * 60 * 1000);
     runPassiveScoreRegen(client).catch((err) => logger.error('Passive regen error', err));
   }
 };

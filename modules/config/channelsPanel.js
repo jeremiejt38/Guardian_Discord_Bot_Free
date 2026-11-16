@@ -6,6 +6,7 @@ const { findTextChannelByName } = require('../utils/channels');
 const { getGuildSetting, setGuildSetting } = require('./settings');
 const { getGradeMappings } = require('../initialisation/gradeMapping');
 const { logConfigChange } = require('./configLogger');
+const { isPremiumFeatureEnabled, buildPremiumLockButton } = require('../tier/premiumGateUI');
 
 const MODULES = [
   {
@@ -60,7 +61,7 @@ function buildPanelContent(guildId) {
   for (const mod of MODULES) {
     const val = getGuildSetting(guildId, 'channels', mod.key, mod.default);
     const state = val ? '🟢' : '🔴';
-    const premium = mod.premiumFeature && !isPremium(guildId) ? ' 🔒' : '';
+    const premium = mod.premiumFeature && !isPremiumFeatureEnabled(guildId) ? ' 🔒' : '';
     lines.push(`${state} **${mod.label}**${premium}`);
     lines.push(`  -# *${mod.desc}*`);
   }
@@ -70,6 +71,12 @@ function buildPanelContent(guildId) {
 function buildAllRows(guildId) {
   const rows = [];
   for (const mod of MODULES) {
+    if (mod.premiumFeature && !isPremiumFeatureEnabled(guildId)) {
+      rows.push(new ActionRowBuilder().addComponents(
+        buildPremiumLockButton(mod.premiumFeature, mod.label)
+      ));
+      continue;
+    }
     const val = getGuildSetting(guildId, 'channels', mod.key, mod.default);
     const btn = new ButtonBuilder()
       .setCustomId(mod.toggleId)
@@ -95,7 +102,7 @@ async function seedChannelsPanel(guild) {
   const msgs = await channel.messages.fetch({ limit: 10 }).catch(() => null);
   const botPanels = msgs?.filter((m) => m.author.id === guild.client.user.id && m.components.length > 0)?.sort((a, b) => a.createdTimestamp - b.createdTimestamp);
 
-  if (botPanels && botPanels.size >= 1) return;
+  if (botPanels && botPanels.size >= 1) { await refreshChannelsPanel(guild); return; }
 
   await channel.send({ content: buildPanelContent(guildId), components: chunk1 }).catch(() => undefined);
   if (chunk2.length > 0) {

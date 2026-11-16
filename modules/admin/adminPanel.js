@@ -1,14 +1,15 @@
-const { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } = require('discord.js');
+const { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, MessageFlags } = require('discord.js');
 const { setConfig, getConfig } = require('../../database/db');
-const { isBotAdmin, getBotAdminId, isRunningUnderPM2 } = require('./botUpdater');
+const { isBotAdmin, getBotAdminId, isRunningUnderPM2 } = require('./adminUtils');
 const logger = require('../logs/logger');
 const { version } = require('../../package.json');
+const { getRecapStats } = require('./recapStats');
 const os = require('os');
 
 const GLOBAL = '__global__';
 const TIMEOUT_MS = 15 * 60 * 1000;
 
-const VIEWS = { statut: 'statut', serveurs: 'serveurs', bdd: 'bdd', notifs: 'notifs' };
+const VIEWS = { statut: 'statut', serveurs: 'serveurs', bdd: 'bdd', notifs: 'notifs', recap: 'recap' };
 
 const timeouts = new Map();
 
@@ -44,7 +45,7 @@ function formatBytes(b) {
 }
 
 function buildPanelButtons(activeView = null) {
-  return new ActionRowBuilder().addComponents(
+  const mainRow = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId('admin:panel:statut')
       .setLabel('🤖 Statut')
@@ -61,6 +62,13 @@ function buildPanelButtons(activeView = null) {
       .setCustomId('admin:panel:notifs')
       .setLabel('🔔 Notifs')
       .setStyle(activeView === VIEWS.notifs ? ButtonStyle.Primary : ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId('admin:panel:recap')
+      .setLabel('📊 Recap')
+      .setStyle(activeView === VIEWS.recap ? ButtonStyle.Primary : ButtonStyle.Secondary),
+  );
+
+  const secondRow = new ActionRowBuilder().addComponents(
     activeView
       ? new ButtonBuilder()
           .setCustomId('admin:panel:close')
@@ -69,8 +77,10 @@ function buildPanelButtons(activeView = null) {
       : new ButtonBuilder()
           .setCustomId('admin:panel:refresh')
           .setLabel('🔄')
-          .setStyle(ButtonStyle.Secondary),
+          .setStyle(ButtonStyle.Secondary)
   );
+
+  return [mainRow, secondRow];
 }
 
 function baseEmbed() {
@@ -84,7 +94,7 @@ function buildClosedContent() {
   return {
     content: '🛡️ **Guardian — Admin Panel**',
     embeds: [],
-    components: [buildPanelButtons()],
+    components: buildPanelButtons(),
   };
 }
 
@@ -102,7 +112,7 @@ function buildStatutContent(client) {
       { name: 'Node.js', value: process.version, inline: true },
       { name: 'OS', value: `${os.type()} ${os.release()}`, inline: false }
     );
-  return { content: '', embeds: [embed], components: [buildPanelButtons(VIEWS.statut)] };
+  return { content: '', embeds: [embed], components: buildPanelButtons(VIEWS.statut) };
 }
 
 function buildServeursContent(client) {
@@ -113,7 +123,7 @@ function buildServeursContent(client) {
     embed.addFields({ name: g.name, value: `${g.memberCount} membres`, inline: true });
   }
   if (guilds.size === 0) embed.addFields({ name: 'Aucun serveur', value: '*Guardian n\'est sur aucun serveur.*', inline: false });
-  return { content: '', embeds: [embed], components: [buildPanelButtons(VIEWS.serveurs)] };
+  return { content: '', embeds: [embed], components: buildPanelButtons(VIEWS.serveurs) };
 }
 
 function buildBddContent() {
@@ -132,7 +142,7 @@ function buildBddContent() {
       { name: 'Fichier', value: `\`${absPath}\``, inline: false },
       { name: 'Taille', value: sizeStr, inline: true }
     );
-  return { content: '', embeds: [embed], components: [buildPanelButtons(VIEWS.bdd)] };
+  return { content: '', embeds: [embed], components: buildPanelButtons(VIEWS.bdd) };
 }
 
 function buildNotifsContent() {
@@ -155,7 +165,19 @@ function buildNotifsContent() {
     ));
   }
 
-  return { content: '', embeds: [embed], components: [...toggleRows, buildPanelButtons(VIEWS.notifs)] };
+  return { content: '', embeds: [embed], components: [...toggleRows, ...buildPanelButtons(VIEWS.notifs)] };
+}
+
+function buildRecapContent() {
+  const stats = getRecapStats();
+  const embed = baseEmbed()
+    .setDescription(`📊 **Recap — 30 derniers jours**`)
+    .addFields(
+      { name: '👤 Nouveaux membres', value: `${stats.newMemberCount}`, inline: true },
+      { name: '🎮 Jeux actifs', value: `${stats.activeGameCount}`, inline: true },
+      { name: '🛡️ Incidents modération', value: `${stats.moderationIncidentCount}`, inline: true }
+    );
+  return { content: '', embeds: [embed], components: buildPanelButtons(VIEWS.recap) };
 }
 
 function buildViewContent(view, client) {
@@ -164,6 +186,7 @@ function buildViewContent(view, client) {
     case VIEWS.serveurs: return buildServeursContent(client);
     case VIEWS.bdd: return buildBddContent();
     case VIEWS.notifs: return buildNotifsContent();
+    case VIEWS.recap: return buildRecapContent();
     default: return buildClosedContent();
   }
 }
@@ -218,7 +241,7 @@ async function openOrRefreshPanel(client, view = null) {
       }
     }
 
-    const msg = await ch.send(content);
+    const msg = await ch.send({ ...content, flags: MessageFlags.SuppressNotifications });
     setPanelMessageId(msg.id);
     setPanelChannelId(ch.id);
 
@@ -227,14 +250,18 @@ async function openOrRefreshPanel(client, view = null) {
 
     return msg;
   } catch (err) {
-    logger.error('adminPanel: openOrRefreshPanel error', err);
+    if (err && err.code === 50278) {
+      logger.warn('adminPanel: bot admin has no mutual guild with this bot — panel skipped');
+    } else {
+      logger.error('adminPanel: openOrRefreshPanel error', err);
+    }
     return null;
   }
 }
 
 async function handlePanelInteraction(interaction, client) {
   if (!isBotAdmin(interaction.user.id)) {
-    await interaction.reply({ content: '❌ Accès réservé à l\'administrateur bot.', ephemeral: true }).catch(() => {});
+    await interaction.reply({ content: '❌ Accès réservé à l\'administrateur bot.', flags: MessageFlags.Ephemeral }).catch(() => {});
     return true;
   }
 
@@ -284,19 +311,35 @@ function detectCurrentView(content) {
   if (content.includes('🌐 Serveurs connectés')) return VIEWS.serveurs;
   if (content.includes('🗄️ Base de données')) return VIEWS.bdd;
   if (content.includes('🔔 Notifications système')) return VIEWS.notifs;
+  if (content.includes('📊 Recap')) return VIEWS.recap;
   return null;
 }
 
-async function pushPanelToBottom(client) {
+async function pushPanelToBottom(client, preserveMessageIds = []) {
   try {
     const ch = await getAdminDmChannel(client);
     if (!ch) return;
+
     const existingId = getPanelMessageId();
-    if (existingId) {
-      const existing = await ch.messages.fetch(existingId).catch(() => null);
-      if (existing) await existing.delete().catch(() => {});
+    if (existingId && !preserveMessageIds.includes(existingId)) {
+      preserveMessageIds.push(existingId);
     }
-    const msg = await ch.send(buildClosedContent());
+
+    const batch = await ch.messages.fetch({ limit: 50 }).catch(() => null);
+    if (batch) {
+      for (const msg of batch.values()) {
+        if (preserveMessageIds.includes(msg.id)) continue;
+        await msg.delete().catch(() => {});
+      }
+    }
+
+    let existingPanel = null;
+    if (existingId) {
+      existingPanel = await ch.messages.fetch(existingId).catch(() => null);
+      if (existingPanel) await existingPanel.delete().catch(() => {});
+    }
+
+    const msg = await ch.send({ ...buildClosedContent(), flags: MessageFlags.SuppressNotifications });
     setPanelMessageId(msg.id);
     setPanelChannelId(ch.id);
     cancelTimeout();
@@ -305,10 +348,40 @@ async function pushPanelToBottom(client) {
   }
 }
 
+async function sendAdminDmMessage(client, payload) {
+  try {
+    const ch = await getAdminDmChannel(client);
+    if (!ch) return null;
+
+    const batch = await ch.messages.fetch({ limit: 50 }).catch(() => null);
+    const preserve = [];
+    if (batch) {
+      for (const msg of batch.values()) {
+        if (msg.author?.id === client.user?.id && msg.id !== getPanelMessageId()) {
+          await msg.delete().catch(() => {});
+        }
+      }
+      const panelId = getPanelMessageId();
+      if (panelId) {
+        const panel = await ch.messages.fetch(panelId).catch(() => null);
+        if (panel) preserve.push(panelId);
+      }
+    }
+
+    const msg = await ch.send({ ...payload, flags: MessageFlags.SuppressNotifications });
+    await pushPanelToBottom(client, [...preserve, msg.id]);
+    return msg;
+  } catch (err) {
+    logger.warn('adminPanel: sendAdminDmMessage error', err);
+    return null;
+  }
+}
+
 module.exports = {
   openOrRefreshPanel,
   handlePanelInteraction,
   pushPanelToBottom,
+  sendAdminDmMessage,
   getNotifPref,
   setNotifPref,
   NOTIF_KEYS,

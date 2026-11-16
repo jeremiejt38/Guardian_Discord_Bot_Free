@@ -5,7 +5,8 @@ const {
   ModalBuilder,
   StringSelectMenuBuilder,
   TextInputBuilder,
-  TextInputStyle
+  TextInputStyle,
+  MessageFlags
 } = require('discord.js');
 const { CHANNELS, GRADE_NAMES } = require('../../config');
 const { t } = require('../i18n');
@@ -15,6 +16,12 @@ const { getGradeMappings } = require('../initialisation/gradeMapping');
 const { logConfigChange } = require('./configLogger');
 const { getDb } = require('../../database/db');
 const logger = require('../logs/logger');
+const GAME_ICONS = {
+  minecraft: '⛏️', valheim: '⚔️', fs25: '🚜', stationeers: '🛰️',
+  hytale: '🧱', vintagestory: '🏰', '7dtd': '🧟', satisfactory: '🏭',
+  spaceengineers: '🚀', astroneer: '🌌', eco: '🌿',
+};
+const { queryPlayers } = require('../servers/gameQuery');
 
 const IDS = Object.freeze({
   gameSelect:    'serveurs-jeu:game-select',
@@ -63,7 +70,7 @@ function hasManagerGrade(member, guildId) {
 }
 
 function getServers(guildId) {
-  return getDb().prepare('SELECT * FROM servers_jeu WHERE guild_id = ?').all(guildId);
+  return getDb().prepare("SELECT * FROM servers_jeu WHERE guild_id = ? ORDER BY game, name").all(guildId);
 }
 
 function statusEmoji(status) {
@@ -111,7 +118,7 @@ async function seedServeursJeuPanel(guild) {
   if (!channel) return;
   const msgs = await channel.messages.fetch({ limit: 5 }).catch(() => null);
   const hasPanel = msgs?.some((m) => m.author.id === guild.client.user.id && m.components.length > 0);
-  if (hasPanel) return;
+  if (hasPanel) { await refreshServeursJeuPanel(guild); return; }
   const guildId = guild.id;
   await channel.send({ content: buildPanelContent(guildId), components: buildRows(guildId) }).catch(() => undefined);
 }
@@ -136,33 +143,124 @@ async function refreshServerListPanel(guild) {
   const servers = getServers(guildId).filter((s) => s.approved);
 
   const msgs = await channel.messages.fetch({ limit: 50 }).catch(() => null);
-  const botMsgs = msgs?.filter((m) => m.author.id === guild.client.user.id) ?? new Map();
-  for (const m of botMsgs.values()) await m.delete().catch(() => {});
+  const botMsgs = [...(msgs?.filter((m) => m.author.id === guild.client.user.id).values() ?? [])];
+
+  // Édition en place : si chaque serveur a déjà son message (status_message_id),
+  // on modifie le contenu au lieu de tout supprimer/reposter.
+  const byId = new Map(botMsgs.map((m) => [m.id, m]));
+  const header = botMsgs.find((m) => m.content.includes('Serveurs de jeu disponibles'));
+  const allEditable = servers.length > 0 && servers.every((s) => s.status_message_id && byId.has(s.status_message_id));
+
+  const renderServer = async (s) => {
+    const online = s.last_status === 'online';
+    const emoji = online ? '🟢' : s.last_status === 'unstable' ? '🟡' : '🔴';
+    // Infos de connexion visibles seulement quand le serveur tourne.
+    const parts = [`${emoji} ${GAME_ICONS[s.game] || '🎮'} **${s.name}** — ${s.game}`, online ? 'en ligne' : s.last_status === 'unstable' ? 'démarrage/arrêt' : 'hors ligne'];
+    if (s.description) parts.push(`_${s.description}_`);
+    if (online) {
+      const players = await queryPlayers(s.ip, s.port).catch(() => null);
+      parts.push(`👥 ${players ? `${players.players}${players.max != null ? '/' + players.max : ''}` : 'n/a'}`);
+    }
+    let content = parts.join(' • ');
+    if (online) {
+      content += `\n> ||\`${s.ip}:${s.port}\`||`;
+      if (s.password) content += ` • 🔑 ||${s.password}||`;
+    }
+    const row = new ActionRowBuilder();
+    if (!online && s.pelican_identifier) {
+      row.addComponents(new ButtonBuilder()
+        .setCustomId(`pelican:start:${s.pelican_identifier}`)
+        .setLabel('▶️ Démarrer')
+        .setStyle(ButtonStyle.Success));
+    } else if (online) {
+      row.addComponents(new ButtonBuilder()
+        .setCustomId(`servers:checkupdate:${s.server_id}`)
+        .setLabel('🔍 Vérifier MAJ')
+        .setStyle(ButtonStyle.Primary));
+    }
+    return { content, components: row.components.length ? [row] : [] };
+  };
 
   if (servers.length === 0) {
+    for (const m of botMsgs) await m.delete().catch(() => {});
     await channel.send({ content: '**🖥️ Serveurs de jeu disponibles**\n_Aucun serveur configuré pour le moment._' }).catch((e) => logger.warn(`Guild ${guildId}: liste-serveurs send failed: ${e.message}`));
     return;
   }
 
-  await channel.send({ content: '**🖥️ Serveurs de jeu disponibles**' }).catch(() => {});
+  if (!header) {
+    for (const m of botMsgs) await m.delete().catch(() => {});
+    await channel.send({ content: '**🖥️ Serveurs de jeu disponibles**' }).catch(() => {});
+  }
 
+  if (allEditable) {
+    for (const s of servers) {
+      const payload = await renderServer(s);
+      await byId.get(s.status_message_id).edit(payload).catch(async () => {
+        const sent = await channel.send(payload).catch(() => null);
+        if (sent) getDb().prepare('UPDATE servers_jeu SET status_message_id = ? WHERE server_id = ?').run(sent.id, s.server_id);
+      });
+    }
+    logger.info(`Guild ${guildId}: liste-serveurs edited in place — ${servers.length} serveur(s)`);
+    return;
+  }
+
+  // Le set a changé (ajout/suppression) -> on reposte proprement.
+  for (const m of botMsgs) { if (m !== header) await m.delete().catch(() => {}); }
   for (const s of servers) {
-    const emoji = s.last_status === 'online' ? '🟢' : s.last_status === 'offline' ? '🔴' : '⚪';
-    const passwordLine = s.password ? `\n> 🔑 Mot de passe : ||${s.password}||` : '';
-    const content = `${emoji} **${s.name}** — ${s.game}\n> IP : \`${s.ip}:${s.port}\`${passwordLine}`;
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId(`server:copy:${s.server_id}`)
-        .setLabel('Copier IP')
-        .setStyle(ButtonStyle.Secondary)
-    );
-    await channel.send({ content, components: [row] }).catch((e) => logger.warn(`Guild ${guildId}: liste-serveurs entry failed: ${e.message}`));
+    const payload = await renderServer(s);
+    const sent = await channel.send(payload).catch((e) => { logger.warn(`Guild ${guildId}: liste-serveurs entry failed: ${e.message}`); return null; });
+    if (sent) getDb().prepare('UPDATE servers_jeu SET status_message_id = ? WHERE server_id = ?').run(sent.id, s.server_id);
   }
   logger.info(`Guild ${guildId}: liste-serveurs refreshed — ${servers.length} serveur(s)`);
 }
 
 async function handleServeursJeuInteraction(interaction) {
   const { customId, guildId } = interaction;
+
+  if (interaction.isButton() && customId?.startsWith('servers:checkupdate:')) {
+    const serverId = Number(customId.slice('servers:checkupdate:'.length));
+    const server = getDb().prepare('SELECT * FROM servers_jeu WHERE server_id = ?').get(serverId);
+    if (!server) { await replyEphemeral(interaction, '❌ Serveur introuvable.'); return true; }
+    // Le bouton affiche un état de chargement pendant la vérification.
+    await interaction.deferUpdate().catch(() => {});
+    const { checkSteamUpdate } = require('../servers/updateCheck');
+    const res = server.pelican_identifier
+      ? await checkSteamUpdate(server.pelican_identifier).catch((e) => { logger.warn(`UpdateCheck failed ${server.pelican_identifier}: ${e.message}`); return null; })
+      : null;
+    if (res === null) {
+      await interaction.followUp({ content: 'ℹ️ Vérification de mise à jour non disponible pour ce serveur (jeu non-Steam ou manifeste introuvable).', flags: MessageFlags.Ephemeral }).catch(() => {});
+    } else if (res.update) {
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`servers:doupdate:${serverId}`).setLabel('🔄 Mettre à jour').setStyle(ButtonStyle.Danger)
+      );
+      await interaction.followUp({ content: `🆕 **Mise à jour disponible** pour **${server.name}** (build ${res.installed} → ${res.latest}).`, components: [row], flags: MessageFlags.Ephemeral }).catch(() => {});
+    } else {
+      await interaction.followUp({ content: `✅ **${server.name}** est à jour (build ${res.installed}).`, flags: MessageFlags.Ephemeral }).catch(() => {});
+    }
+    return true;
+  }
+
+  if (interaction.isButton() && customId?.startsWith('servers:doupdate:')) {
+    const serverId = Number(customId.slice('servers:doupdate:'.length));
+    const server = getDb().prepare('SELECT * FROM servers_jeu WHERE server_id = ?').get(serverId);
+    if (!server) { await replyEphemeral(interaction, '❌ Serveur introuvable.'); return true; }
+    const players = await queryPlayers(server.ip, server.port).catch(() => null);
+    if (players && players.players > 0) {
+      await interaction.update({ content: `⛔ ${players.players} joueur(s) connecté(s) — mise à jour impossible tant que des joueurs sont connectés.`, components: [] });
+      return true;
+    }
+    if (!server.pelican_identifier) { await interaction.update({ content: '❌ Serveur non lié à Pelican.', components: [] }); return true; }
+    await interaction.update({ content: '⏳ Redémarrage pour mise à jour en cours…', components: [] });
+    const pelican = require('../servers/pelicanApi');
+    try {
+      await pelican.power(server.pelican_identifier, 'restart');
+      logger.info(`Guild ${guildId}: update-restart ${server.pelican_identifier} by ${interaction.user.id}`);
+    } catch (e) {
+      logger.error(`Guild ${guildId}: update-restart failed`, e);
+      await interaction.followUp({ content: '❌ Échec du redémarrage.', flags: MessageFlags.Ephemeral }).catch(() => {});
+    }
+    return true;
+  }
 
   if (interaction.isButton() && customId?.startsWith('server:copy:')) {
     const serverId = Number(customId.slice('server:copy:'.length));

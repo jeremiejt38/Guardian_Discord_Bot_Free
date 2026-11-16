@@ -1,3 +1,4 @@
+const { MessageFlags } = require('discord.js');
 const {
   ChannelType,
   PermissionFlagsBits,
@@ -22,6 +23,7 @@ const {
   tForLanguage
 } = require('../i18n');
 const { markGuildInstalled } = require('./checkInstall');
+const { seedGuildMessages } = require('./seeds');
 const { getInstallContext, autoMapRolesByName } = require('./detectInstallContext');
 const { provisionGuildGameStructures, buildOpenButtonRow } = require('../games/gameList');
 const {
@@ -48,6 +50,8 @@ const SETUP_FORCE_EXISTING_BUTTON_ID = 'setup:force-existing';
 const SETUP_FORCE_REINSTALL_BUTTON_ID = 'setup:force-reinstall';
 const SETUP_CLEAN_SERVER_BUTTON_ID = 'setup:clean-server';
 const SETUP_CLEAN_MODAL_ID = 'setup:clean-modal';
+const SETUP_CLEAN_VOCALS_BUTTON_ID = 'setup:clean-vocals';
+const SETUP_CLEAN_ROLES_BUTTON_ID = 'setup:clean-roles';
 const SETUP_FRESH_START_BUTTON_ID = 'setup:fresh-start';
 
 async function ensureCategory(guild, name, permissionOverwrites) {
@@ -745,7 +749,8 @@ async function repositionCategories(guild) {
     CATEGORIES.moderation
   ];
   const fixedEnd = [
-    CATEGORIES.configuration
+    CATEGORIES.configuration,
+    CATEGORIES.guides
   ];
 
   const allCategories = guild.channels.cache.filter((c) => c.type === 4);
@@ -935,15 +940,34 @@ function buildContextChoiceRow(guildId, context, guild) {
       );
   const rows = [mainRow];
   if (guild) {
-    const hasExtra = guild.channels.cache.some((c) => c.type !== 4)
-      || guild.roles.cache.some((r) => r.id !== guild.roles.everyone.id && !r.managed);
-    if (hasExtra) {
-      rows.push(new ActionRowBuilder().addComponents(
+    const hasExtraChannels = guild.channels.cache.some((c) => c.type !== 4 && !Object.values(CHANNELS).includes(c.name));
+    const hasExtraRoles = guild.roles.cache.some((r) => r.id !== guild.roles.everyone.id && !r.managed);
+    if (hasExtraChannels || hasExtraRoles) {
+      const cleanButtons = [];
+      const hasOrphanVoice = guild.channels.cache.some((c) => c.type === ChannelType.GuildVoice && !Object.values(CHANNELS).includes(c.name));
+      if (hasOrphanVoice) {
+        cleanButtons.push(
+          new ButtonBuilder()
+            .setCustomId(SETUP_CLEAN_VOCALS_BUTTON_ID)
+            .setLabel('🎙️ Supprimer les vocaux inutiles')
+            .setStyle(ButtonStyle.Secondary)
+        );
+      }
+      if (hasExtraRoles) {
+        cleanButtons.push(
+          new ButtonBuilder()
+            .setCustomId(SETUP_CLEAN_ROLES_BUTTON_ID)
+            .setLabel('🏷️ Supprimer les rôles inutiles')
+            .setStyle(ButtonStyle.Secondary)
+        );
+      }
+      cleanButtons.push(
         new ButtonBuilder()
           .setCustomId(SETUP_CLEAN_SERVER_BUTTON_ID)
-          .setLabel('🗑️ Nettoyer le serveur (supprimer channels & rôles)')
+          .setLabel('🗑️ Tout nettoyer')
           .setStyle(ButtonStyle.Danger)
-      ));
+      );
+      rows.push(new ActionRowBuilder().addComponents(...cleanButtons));
     }
   }
   return rows;
@@ -1046,7 +1070,7 @@ async function handleSetupResetButton(interaction) {
     if (context === 'existing_server') {
       await interaction.message.edit({
         content: buildContextChoiceMessage(guildId, 'existing_server'),
-        components: [buildContextChoiceRow(guildId, 'existing_server')]
+        components: buildContextChoiceRow(guildId, 'existing_server', interaction.guild)
       });
       await interaction.deferUpdate().catch(() => {});
     } else {
@@ -1302,6 +1326,7 @@ async function completeGuildSetup(guild) {
     `completeGuildSetup:cleanupSetupArea:${guild.id}`,
     { silent: true }
   );
+  await seedGuildMessages(guild).catch((err) => logger.error(`completeGuildSetup: seedGuildMessages failed for ${guild.id}`, err));
 }
 
 async function handleSetupForceExistingButton(interaction) {
@@ -1343,10 +1368,10 @@ async function handleSetupCleanModal(interaction) {
   const guild = interaction.guild;
   const value = interaction.fields.getTextInputValue('confirm_input')?.trim();
   if (value?.toUpperCase() !== 'SUPPRIMER') {
-    await interaction.reply({ content: '❌ Confirmation incorrecte — suppression annulée.', ephemeral: true }).catch(() => {});
+    await interaction.reply({ content: '❌ Confirmation incorrecte — suppression annulée.', flags: MessageFlags.Ephemeral }).catch(() => {});
     return;
   }
-  await interaction.deferReply({ ephemeral: true }).catch(() => {});
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral }).catch(() => {});
   let deleted = 0;
   const protectedNames = new Set(Object.values(CHANNELS));
   for (const channel of [...guild.channels.cache.values()]) {
@@ -1390,6 +1415,41 @@ async function handleSetupForceReinstallButton(interaction) {
   await interaction.deferUpdate().catch(() => {});
 }
 
+async function handleSetupCleanVocalsButton(interaction) {
+  if (!interaction.inGuild() || !interaction.guild) return;
+  const guildId = interaction.guildId;
+  const guild = interaction.guild;
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral }).catch(() => {});
+  const protectedNames = new Set([CHANNELS.voiceGeneral, CHANNELS.voiceAfk]);
+  let deleted = 0;
+  for (const channel of [...guild.channels.cache.values()]) {
+    if (channel.type !== ChannelType.GuildVoice) continue;
+    if (protectedNames.has(channel.name)) continue;
+    await channel.delete('Guardian: suppression des salons vocaux inutiles').catch(() => {});
+    deleted++;
+  }
+  await guild.channels.fetch().catch(() => {});
+  logger.info(`Guild ${guildId}: ${deleted} voice channels cleaned`);
+  await interaction.editReply({ content: `✅ ${deleted} salon(s) vocal(aux) supprimé(s). Seuls **${CHANNELS.voiceGeneral}** et **${CHANNELS.voiceAfk}** sont conservés.` }).catch(() => {});
+}
+
+async function handleSetupCleanRolesButton(interaction) {
+  if (!interaction.inGuild() || !interaction.guild) return;
+  const guildId = interaction.guildId;
+  const guild = interaction.guild;
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral }).catch(() => {});
+  const managedRoleIds = new Set(guild.roles.cache.filter((r) => r.managed).map((r) => r.id));
+  let deleted = 0;
+  for (const role of [...guild.roles.cache.values()]) {
+    if (role.id === guild.roles.everyone.id) continue;
+    if (managedRoleIds.has(role.id)) continue;
+    await role.delete('Guardian: suppression des rôles inutiles').catch(() => {});
+    deleted++;
+  }
+  logger.info(`Guild ${guildId}: ${deleted} roles cleaned`);
+  await interaction.editReply({ content: `✅ ${deleted} rôle(s) supprimé(s).` }).catch(() => {});
+}
+
 module.exports = {
   SETUP_INSTALL_BUTTON_ID,
   SETUP_LANGUAGE_SELECT_ID,
@@ -1401,6 +1461,8 @@ module.exports = {
   SETUP_FORCE_REINSTALL_BUTTON_ID,
   SETUP_CLEAN_SERVER_BUTTON_ID,
   SETUP_CLEAN_MODAL_ID,
+  SETUP_CLEAN_VOCALS_BUTTON_ID,
+  SETUP_CLEAN_ROLES_BUTTON_ID,
   createSetupArea,
   ensureSetupInstallPrompt,
   cleanupSetupAreaIfInstalled,
@@ -1414,5 +1476,7 @@ module.exports = {
   handleSetupForceExistingButton,
   handleSetupForceReinstallButton,
   handleSetupCleanServerButton,
-  handleSetupCleanModal
+  handleSetupCleanModal,
+  handleSetupCleanVocalsButton,
+  handleSetupCleanRolesButton
 };

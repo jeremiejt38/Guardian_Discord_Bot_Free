@@ -1,15 +1,22 @@
 {
   "name": "guardian-discord-bot",
-  "version": "0.27.1",
-  "prerelease": false,
+  "version": "0.30.36",
+  "prerelease": true,
   "description": "Guardian Discord bot for gaming communities",
   "main": "index.js",
   "type": "commonjs",
   "scripts": {
     "run": "npm run start",
-    "dev": "node --watch index.js",
+    "dev": "node --watch index.js --env=dev",
     "start": "node index.js",
+    "start:dev": "node index.js --env=dev",
+    "start:beta": "node index.js --env=beta",
     "deploy:commands": "node deploy-commands.js",
+    "deploy:commands:dev": "node deploy-commands.js --env=dev",
+    "deploy:commands:beta": "node deploy-commands.js --env=beta",
+    "bot:dev:start": "screen -dmS guardian-dev bash -c 'node index.js --env=dev'",
+    "bot:dev:stop": "screen -S guardian-dev -X quit 2>/dev/null || true",
+    "bot:dev:restart": "npm run bot:dev:stop; sleep 1; npm run bot:dev:start",
     "test": "node --test",
     "release": "node ../scripts/release.js",
     "release:minor": "node ../scripts/release.js minor",
@@ -17,13 +24,17 @@
     "readme": "node ../scripts/generate-readme.js",
     "readme:dry": "node ../scripts/generate-readme.js --dry",
     "build:free": "node ../scripts/build-free.js",
-    "build:free:dry": "node ../scripts/build-free.js --dry-run"
+    "build:free:dry": "node ../scripts/build-free.js --dry-run",
+    "lint": "eslint ."
   },
   "dependencies": {
     "discord.js": "^14.26.4",
     "dotenv": "^17.4.2"
   },
   "overrides": {
-    "undici": "^6.27.0"
+    "undici": "^6.28.0"
+  },
+  "devDependencies": {
+    "eslint": "^9.39.5"
   }
 }

@@ -18,6 +18,7 @@ const {
   resetBehaviorScore
 } = require('./behavior');
 const { getGradeMappings } = require('../initialisation/gradeMapping');
+const { isPremiumFeatureEnabled, buildPremiumLockButton } = require('../tier/premiumGateUI');
 
 const IDS = Object.freeze({
   addThreshold: 'behavior:threshold:add',
@@ -41,6 +42,11 @@ function buildPanelContent(guildId) {
   const thresholds = getBehaviorThresholds(guildId);
   const lines = [`**${t(guildId, 'behavior.panelTitle')}**\n`];
 
+  if (!isPremiumFeatureEnabled(guildId)) {
+    lines.push('🔒 *Les sanctions automatiques sont une feature **Guardian Premium**.*');
+    lines.push('*Cliquez sur le bouton ci-dessous pour en savoir plus.*');
+    return lines.join('\n');
+  }
 
   if (thresholds.length === 0) {
     lines.push(t(guildId, 'behavior.noThresholds'));
@@ -54,6 +60,13 @@ function buildPanelContent(guildId) {
 }
 
 function buildThresholdRows(guildId) {
+  if (!isPremiumFeatureEnabled(guildId)) {
+    return [
+      new ActionRowBuilder().addComponents(
+        buildPremiumLockButton('behavior_sanctions', 'Sanctions automatiques')
+      )
+    ];
+  }
 
   const rows = [
     new ActionRowBuilder().addComponents(
@@ -121,12 +134,14 @@ async function seedBehaviorPanel(guild) {
   if (!channel) return;
 
   const messages = await channel.messages.fetch({ limit: 10 }).catch(() => null);
-  const hasPanel = messages?.some(
+  const panel = messages?.find(
     (m) => m.author.id === guild.client.user.id && m.components.length > 0
   );
-  if (hasPanel) return;
-
   const guildId = guild.id;
+  if (panel) {
+    await panel.edit({ content: buildPanelContent(guildId), components: buildThresholdRows(guildId) }).catch(() => undefined);
+    return;
+  }
   await channel.send({
     content: buildPanelContent(guildId),
     components: buildThresholdRows(guildId)

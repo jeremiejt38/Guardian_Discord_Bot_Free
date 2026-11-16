@@ -1,3 +1,4 @@
+const { MessageFlags } = require('discord.js');
 const {
   ActionRowBuilder,
   ButtonBuilder,
@@ -172,6 +173,8 @@ async function seedBotPanel(guild) {
   if (!hasPanel) {
     const guildId = guild.id;
     await channel.send({ content: buildPanelContent(guildId), components: buildRows(guildId) }).catch(() => undefined);
+  } else {
+    await refreshBotPanel(guild);
   }
   await upsertStatusEmbed(guild);
 }
@@ -307,8 +310,8 @@ async function handleBotInteraction(interaction) {
       await replyEphemeral(interaction, '✅ La configuration est déjà terminée. Utilise `/status` pour voir l\'état.');
       return true;
     }
-    const payload = buildStepPayload(guildId, interaction.guild, step);
-    await interaction.reply({ embeds: payload.embeds, components: payload.components, ephemeral: true }).catch(() => {});
+    const payload = await buildStepPayload(guildId, interaction.guild, step);
+    await interaction.reply({ embeds: payload.embeds, components: payload.components, flags: MessageFlags.Ephemeral }).catch(() => {});
     return true;
   }
 

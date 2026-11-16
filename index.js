@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { Client, Collection, GatewayIntentBits, Partials } = require('discord.js');
 const { DISCORD_TOKEN } = require('./config');
-const { initDatabase, migrateDatabase } = require('./database/db');
+const { initDatabase, closeDatabase, migrateDatabase } = require('./database/db');
 const logger = require('./modules/logs/logger');
 
 const client = new Client({
@@ -12,6 +12,7 @@ const client = new Client({
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildVoiceStates,
+    GatewayIntentBits.GuildPresences,
     GatewayIntentBits.AutoModerationExecution
   ],
   partials: [Partials.Channel]
@@ -55,7 +56,18 @@ process.on('unhandledRejection', (err) => {
 
 process.on('uncaughtException', (err) => {
   logger.error('Uncaught exception', { message: err?.message, stack: err?.stack });
+  // Uncaught state is undefined — let PM2 restart us rather than limp on.
+  process.exit(1);
 });
+
+async function shutdown(signal) {
+  logger.info(`${signal} received, shutting down`);
+  try { await client.destroy(); } catch {}
+  try { closeDatabase(); } catch {}
+  process.exit(0);
+}
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
 
 (async () => {
   try {

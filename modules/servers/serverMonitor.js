@@ -5,7 +5,10 @@ const { CHANNEL_NAMES } = require('../../config');
 const { getGuildSetting } = require('../config/settings');
 const { resolveTextChannel } = require('../utils/channels');
 const { createGuildRunTracker } = require('../utils/scheduling');
+const { guardAsync } = require('../utils/intervalGuard');
 const logger = require('../logs/logger');
+const { queryPlayers } = require('./gameQuery');
+const pelican = require('./pelicanApi');
 
 const runTracker = createGuildRunTracker();
 
@@ -47,38 +50,58 @@ function resolveServerListChannel(guild) {
   });
 }
 
-function buildServerEmbed(server, status, checkedAtIso) {
-  return new EmbedBuilder()
-    .setTitle(`${server.name} (${server.game})`)
-    .setDescription([
-      `IP: ${server.ip}:${server.port}`,
-      `Statut: ${renderStatus(status)}`,
-      `Dernière vérification: ${new Date(checkedAtIso).toLocaleString('fr-FR')}`
-    ].join('\n'));
+async function buildMemberContent(server, status, checkedAtIso) {
+  const emoji = status === 'online' ? '\u{1F7E2}' : status === 'offline' ? '\u{1F534}' : '\u{1F7E1}';
+  const lines = [`${emoji} **${server.name}** — ${server.game}`, `Statut : ${renderStatus(status)}`];
+  if (status === 'online') {
+    const players = await queryPlayers(server.ip, server.port).catch(() => null);
+    lines.push(`Joueurs : ${players ? `${players.players}${players.max != null ? '/' + players.max : ''}` : 'n/a'}`);
+    lines.push(`Adresse : ||\`${server.ip}:${server.port}\`||`);
+    if (server.password) lines.push(`Mot de passe : ||\`${server.password}\`||`);
+  }
+  lines.push(`Vérifié : ${new Date(checkedAtIso).toLocaleString('fr-FR')}`);
+  return lines.join('\n');
+}
+function buildPowerComponents(server) {
+  const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+  const row = new ActionRowBuilder();
+  if (server.pelican_identifier && server.last_status !== 'online') {
+    row.addComponents(new ButtonBuilder()
+      .setCustomId(`pelican:start:${server.pelican_identifier}`)
+      .setLabel('▶️ Démarrer')
+      .setStyle(ButtonStyle.Success));
+  } else if (server.last_status === 'online') {
+    row.addComponents(new ButtonBuilder()
+      .setCustomId(`server:copy:${server.server_id}`)
+      .setLabel('Copier IP')
+      .setStyle(ButtonStyle.Secondary));
+  } else return [];
+  return [row];
 }
 
 async function upsertStatusMessage(channel, server, status, checkedAtIso) {
   const db = getDb();
-  const embed = buildServerEmbed(server, status, checkedAtIso);
+  const content = await buildMemberContent(server, status, checkedAtIso);
 
   if (server.status_message_id) {
     const existing = await channel.messages.fetch(server.status_message_id).catch(() => null);
     if (existing) {
-      await existing.edit({ embeds: [embed] });
+      await existing.edit({ content, embeds: [], components: buildPowerComponents(server) });
       return;
     }
 
     logger.warn(`Status message not found for server_id=${server.server_id}, creating a new one`);
   }
 
-  const created = await channel.send({ embeds: [embed] });
+  const components = buildPowerComponents(server);
+  const created = await channel.send({ content, components });
   db.prepare('UPDATE servers_jeu SET status_message_id = ? WHERE server_id = ?').run(created.id, server.server_id);
 }
 
 async function monitorServers(client) {
   const db = getDb();
   const servers = db
-    .prepare('SELECT server_id, guild_id, name, game, ip, port, status_message_id FROM servers_jeu')
+    .prepare('SELECT server_id, guild_id, name, game, ip, port, status_message_id, pelican_identifier FROM servers_jeu')
     .all();
   const now = new Date().toISOString();
 
@@ -105,8 +128,19 @@ async function monitorServers(client) {
 
     const statusChannel = await resolveServerListChannel(guild);
 
+    let statusChanged = false;
     for (const server of guildServers) {
-      const status = await checkTcpServer(server.ip, Number(server.port));
+      // Serveur lié à Pelican -> l'API fait foi (le ping TCP vers l'IP publique
+      // échoue en hairpin depuis le host) ; sinon ping TCP classique.
+      let status;
+      if (server.pelican_identifier && pelican.isConfigured()) {
+        const r = await pelican.getResources(server.pelican_identifier).catch(() => null);
+        const st = r?.current_state;
+        status = st === 'running' ? 'online' : (st === 'starting' || st === 'stopping') ? 'unstable' : 'offline';
+      } else {
+        status = await checkTcpServer(server.ip, Number(server.port));
+      }
+      if (server.last_status !== status) statusChanged = true;
       db.prepare('UPDATE servers_jeu SET last_status = ?, last_check = ? WHERE server_id = ?').run(status, now, server.server_id);
 
       if (!statusChannel) {
@@ -118,14 +152,24 @@ async function monitorServers(client) {
       });
     }
 
+    // La liste membre se re-rend dès qu'un serveur change d'état,
+    // que le changement vienne d'un bouton Discord ou de l'extérieur.
+    if (statusChanged) {
+      const { refreshServerListPanel } = require('../config/serveursJeuPanel');
+      await refreshServerListPanel(guild).catch((e) => logger.warn(`Guild ${guildId}: auto-refresh liste-serveurs failed: ${e.message}`));
+    }
+
     runTracker.markRun(guildId, nowMs);
   }
 }
 
 function startServerMonitor(client, intervalMs = 60 * 1000) {
-  return setInterval(() => {
-    monitorServers(client).catch((error) => logger.error('Server monitor cycle failure', error));
-  }, intervalMs);
+  return setInterval(
+    guardAsync(async () => {
+      await monitorServers(client).catch((error) => logger.error('Server monitor cycle failure', error));
+    }),
+    intervalMs
+  );
 }
 
 module.exports = {

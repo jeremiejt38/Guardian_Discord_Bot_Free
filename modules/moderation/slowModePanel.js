@@ -28,29 +28,43 @@ function hasOwnerGrade(member, guildId) {
   return ownerRoleId && member.roles.cache.has(ownerRoleId);
 }
 
-function buildChannelSelectMenu(guild, guildId) {
+function buildChannelSelectMenu(guild, guildId, page = 0) {
   const config = getSlowModeConfig(guildId);
-  const textChannels = guild.channels.cache
+  const textChannels = [...guild.channels.cache.values()]
     .filter((ch) => ch.isTextBased?.() && ch.name !== CHANNELS.setup)
-    .first(25);
+    .sort((a, b) => a.name.localeCompare(b.name));
 
   if (!textChannels.length) return null;
 
   const options = textChannels.map((ch) => {
     const seconds = config[ch.id] || 0;
     return {
-      label: `#${ch.name}`.slice(0, 100),
+      label: `#${ch.name}`,
       description: seconds > 0 ? `${seconds}s slow mode actif` : 'Pas de slow mode',
       value: ch.id
     };
   });
 
-  return new ActionRowBuilder().addComponents(
-    new StringSelectMenuBuilder()
-      .setCustomId(IDS.selectChannel)
-      .setPlaceholder(t(guildId, 'automod.slowSelectPlaceholder'))
-      .addOptions(options)
+  const { buildPaginatedSelect } = require('../utils/paginatedSelect');
+  const { rows } = buildPaginatedSelect(
+    options,
+    IDS.selectChannel,
+    t(guildId, 'automod.slowSelectPlaceholder'),
+    page,
+    { minValues: 1, maxValues: 1 }
   );
+  return rows;
+}
+
+async function handleSlowModePage(interaction) {
+  const { parsePaginatedCustomId } = require('../utils/paginatedSelect');
+  const { targetPage } = parsePaginatedCustomId(interaction.customId);
+  if (targetPage === null || Number.isNaN(targetPage)) return true;
+  const rows = buildChannelSelectMenu(interaction.guild, interaction.guildId, targetPage);
+  const components = [buildActionRow(interaction.guildId)];
+  if (rows) components.unshift(...rows);
+  await interaction.update({ content: buildPanelContent(interaction.guildId, interaction.guild), components });
+  return true;
 }
 
 function buildPanelContent(guildId, guild) {
@@ -85,22 +99,25 @@ async function seedSlowModePanel(guild) {
   if (!channel) return;
 
   const messages = await channel.messages.fetch({ limit: 10 }).catch(() => null);
-  const hasPanel = messages?.some(
-    (m) => m.author.id === guild.client.user.id &&
-      m.components.length > 0 &&
-      m.components[0]?.components?.[0]?.customId === IDS.panel
-  );
-  if (hasPanel) return;
+  const isPanel = (m) => m.author.id === guild.client.user.id &&
+    m.components.some((row) => row.components?.some((c) => c.customId === IDS.panel));
+  const panels = messages?.filter(isPanel) ?? new Map();
+  // Ne garder que le panel le plus récent, supprimer les doublons historiques.
+  const sorted = [...panels.values()].sort((a, b) => b.createdTimestamp - a.createdTimestamp);
+  const panel = sorted[0];
+  for (const dup of sorted.slice(1)) await dup.delete().catch(() => undefined);
 
   const guildId = guild.id;
-  const selectRow = buildChannelSelectMenu(guild, guildId);
+  const selectRows = buildChannelSelectMenu(guild, guildId, 0);
   const components = [buildActionRow(guildId)];
-  if (selectRow) components.unshift(selectRow);
+  if (selectRows) components.unshift(...selectRows);
+  const payload = { content: buildPanelContent(guildId, guild), components };
 
-  await channel.send({
-    content: buildPanelContent(guildId, guild),
-    components
-  }).catch(() => undefined);
+  if (panel) {
+    await panel.edit(payload).catch(() => undefined);
+    return;
+  }
+  await channel.send(payload).catch(() => undefined);
 }
 
 async function handleSlowModeInteraction(interaction) {
@@ -112,7 +129,11 @@ async function handleSlowModeInteraction(interaction) {
     return true;
   }
 
-  if (interaction.isStringSelectMenu() && customId === IDS.selectChannel) {
+  if (interaction.isButton() && customId.startsWith(`${IDS.selectChannel}:page:`)) {
+    return handleSlowModePage(interaction);
+  }
+
+  if (interaction.isStringSelectMenu() && customId.startsWith(`${IDS.selectChannel}:`)) {
     const channelId = interaction.values[0];
     const ch = interaction.guild.channels.cache.get(channelId);
     if (!ch) {
@@ -158,9 +179,9 @@ async function handleSlowModeInteraction(interaction) {
 
     const automodChannel = findTextChannelByName(interaction.guild, CHANNELS.autoModeration);
     if (automodChannel) {
-      const selectRow = buildChannelSelectMenu(interaction.guild, guildId);
+      const selectRows = buildChannelSelectMenu(interaction.guild, guildId, 0);
       const components = [buildActionRow(guildId)];
-      if (selectRow) components.unshift(selectRow);
+      if (selectRows) components.unshift(...selectRows);
       await automodChannel.messages.fetch({ limit: 5 }).then(async (msgs) => {
         const panel = msgs.find(
           (m) => m.author.id === interaction.guild.client.user.id && m.components.length > 0
@@ -184,9 +205,9 @@ async function handleSlowModeInteraction(interaction) {
 
     const automodChannel = findTextChannelByName(interaction.guild, CHANNELS.autoModeration);
     if (automodChannel) {
-      const selectRow = buildChannelSelectMenu(interaction.guild, guildId);
+      const selectRows = buildChannelSelectMenu(interaction.guild, guildId, 0);
       const components = [buildActionRow(guildId)];
-      if (selectRow) components.unshift(selectRow);
+      if (selectRows) components.unshift(...selectRows);
       await automodChannel.messages.fetch({ limit: 5 }).then(async (msgs) => {
         const panel = msgs.find(
           (m) => m.author.id === interaction.guild.client.user.id && m.components.length > 0

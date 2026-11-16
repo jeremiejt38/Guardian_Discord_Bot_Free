@@ -1,7 +1,7 @@
 const path = require('path');
-const dotenv = require('dotenv');
+const { loadEnv } = require('./modules/utils/envLoader');
 
-dotenv.config();
+loadEnv();
 
 const NODE_ENV = process.env.NODE_ENV || 'production';
 
@@ -113,7 +113,10 @@ module.exports = {
   NODE_ENV,
   DISCORD_TOKEN,
   CLIENT_ID: process.env.CLIENT_ID,
-  DATABASE_PATH: path.resolve(process.cwd(), process.env.DATABASE_PATH || './data/guardian.db'),
+  DATABASE_PATH: (() => {
+    const p = process.env.DATABASE_PATH || './data/guardian.db';
+    return p === ':memory:' ? ':memory:' : path.resolve(process.cwd(), p);
+  })(),
   CATEGORIES,
   CHANNELS,
   CHANNEL_NAMES,

@@ -2,6 +2,7 @@ const { ChannelType, PermissionFlagsBits } = require('discord.js');
 const { CATEGORIES } = require('../../config');
 const { getGuildSetting } = require('../config/settings');
 const { findCategoryByName } = require('../utils/channels');
+const { t } = require('../i18n');
 const logger = require('../logs/logger');
 
 const READ_ONLY_PERMS = [
@@ -17,28 +18,28 @@ const GUIDE_DEFINITIONS = [
     key: 'getting-started',
     name: 'guide-demarrage',
     emoji: '🚀',
-    title: 'Getting Started',
+    title: (guildId) => t(guildId, 'guides.gettingStarted.title'),
     buildContent: (guild, guildId) => {
       const delay = getGuildSetting(guildId, 'members', 'promotion_delay_hours', 48);
       return [
-        '# 🚀 Getting Started on this server',
+        `# 🚀 ${t(guildId, 'guides.gettingStarted.title')}`,
         '',
-        '## Welcome!',
-        `You\'ve just joined **${guild.name}**. Here\'s everything you need to know to get started.`,
+        `## ${t(guildId, 'guides.gettingStarted.welcome')}`,
+        t(guildId, 'guides.gettingStarted.intro', { guildName: guild.name }),
         '',
-        '## 📋 Step 1 — Read the rules',
-        'Check out **#regles** and accept the rules to unlock access to more channels.',
+        `## 📋 ${t(guildId, 'guides.gettingStarted.readRulesTitle')}`,
+        t(guildId, 'guides.gettingStarted.readRules'),
         '',
-        '## ⏱️ Step 2 — Be patient',
-        `You need to spend at least **${delay} hours** on the server before you can apply for membership.`,
+        `## ⏱️ ${t(guildId, 'guides.gettingStarted.bePatientTitle')}`,
+        t(guildId, 'guides.gettingStarted.bePatient', { delay }),
         '',
-        '## 🚀 Step 3 — Become a member',
-        'Head to **#devenir-membre** to check your prerequisites and submit your membership request.',
+        `## 🚀 ${t(guildId, 'guides.gettingStarted.becomeMemberTitle')}`,
+        t(guildId, 'guides.gettingStarted.becomeMember'),
         '',
-        '## 🎮 Step 4 — Join game channels',
-        'Once you\'re a member, you can opt into game-specific channels in **#ma-gamelist**.',
+        `## 🎮 ${t(guildId, 'guides.gettingStarted.joinGamesTitle')}`,
+        t(guildId, 'guides.gettingStarted.joinGames'),
         '',
-        '-# *This guide is maintained automatically by Guardian.*'
+        `-# *${t(guildId, 'guides.gettingStarted.footer')}*`
       ].join('\n');
     }
   },
@@ -46,7 +47,7 @@ const GUIDE_DEFINITIONS = [
     key: 'membership',
     name: 'guide-promotion',
     emoji: '🏅',
-    title: 'Becoming a Member',
+    title: (guildId) => t(guildId, 'guides.membership.title'),
     buildContent: (guild, guildId) => {
       const delay = getGuildSetting(guildId, 'members', 'promotion_delay_hours', 48);
       const bioRequired = Boolean(getGuildSetting(guildId, 'members', 'bio_required', false));
@@ -54,27 +55,24 @@ const GUIDE_DEFINITIONS = [
       const rulesRequired = Boolean(getGuildSetting(guildId, 'members', 'rules_acceptance_required', true));
 
       const prereqs = [];
-      if (rulesRequired) prereqs.push('✅ Accept the server rules in **#regles**');
-      prereqs.push(`⏱️ Spend at least **${delay} hours** on the server`);
-      if (bioRequired) prereqs.push('📝 Fill in your **presentation** (bio)');
-      if (sponsorshipRequired) prereqs.push('🤝 Be sponsored by an existing Member');
+      if (rulesRequired) prereqs.push(t(guildId, 'guides.membership.prereqRules'));
+      prereqs.push(t(guildId, 'guides.membership.prereqTime', { delay }));
+      if (bioRequired) prereqs.push(t(guildId, 'guides.membership.prereqBio'));
+      if (sponsorshipRequired) prereqs.push(t(guildId, 'guides.membership.prereqSponsor'));
 
       return [
-        '# 🏅 Becoming a Member',
+        `# 🏅 ${t(guildId, 'guides.membership.title')}`,
         '',
-        '## What is the "Membre" rank?',
-        'Members have full access to all community channels, can post suggestions, and participate in votes.',
+        `## ${t(guildId, 'guides.membership.whatIsTitle')}`,
+        t(guildId, 'guides.membership.whatIs'),
         '',
-        '## Prerequisites',
+        `## ${t(guildId, 'guides.membership.prereqTitle')}`,
         prereqs.map((p) => `- ${p}`).join('\n'),
         '',
-        '## How to apply',
-        '1. Go to **#devenir-membre**',
-        '2. Click **"I want to become a member"**',
-        '3. Check that all prerequisites are met',
-        '4. Submit your request — the staff will review it',
+        `## ${t(guildId, 'guides.membership.howToTitle')}`,
+        t(guildId, 'guides.membership.howTo').join('\n'),
         '',
-        '-# *This guide is maintained automatically by Guardian.*'
+        `-# *${t(guildId, 'guides.membership.footer')}*`
       ].join('\n');
     }
   },
@@ -82,75 +80,60 @@ const GUIDE_DEFINITIONS = [
     key: 'sponsorship',
     name: 'guide-parrainage',
     emoji: '🤝',
-    title: 'Sponsorship',
-    buildContent: (guild, _guildId) => [
-      '# 🤝 Sponsorship Guide',
+    title: (guildId) => t(guildId, 'guides.sponsorship.title'),
+    buildContent: (guild, guildId) => [
+      `# 🤝 ${t(guildId, 'guides.sponsorship.title')}`,
       '',
-      '## What is sponsorship?',
-      'An existing Member can vouch for you before your membership request is reviewed.',
-      'It shows the staff that someone in the community already trusts you.',
+      `## ${t(guildId, 'guides.sponsorship.whatIsTitle')}`,
+      t(guildId, 'guides.sponsorship.whatIs'),
       '',
-      '## How to get a sponsor',
-      '- Ask an existing Member to run `/parrainer @you` on the server',
-      '- Once done, your sponsorship will appear in your prerequisites in **#devenir-membre**',
+      `## ${t(guildId, 'guides.sponsorship.howGetTitle')}`,
+      t(guildId, 'guides.sponsorship.howGet').map((l) => `- ${l}`).join('\n'),
       '',
-      '## How to sponsor someone',
-      '- Use the command `/parrainer @user` where `@user` is the invite you want to vouch for',
-      '- You can only sponsor one person at a time',
-      '- You take responsibility for the person you sponsor',
+      `## ${t(guildId, 'guides.sponsorship.howSponsorTitle')}`,
+      t(guildId, 'guides.sponsorship.howSponsor').map((l) => `- ${l}`).join('\n'),
       '',
-      '-# *This guide is maintained automatically by Guardian.*'
+      `-# *${t(guildId, 'guides.sponsorship.footer')}*`
     ].join('\n')
   },
   {
     key: 'games',
     name: 'guide-jeux',
     emoji: '🎮',
-    title: 'Game Channels',
-    buildContent: (guild, _guildId) => [
-      '# 🎮 Game Channels Guide',
+    title: (guildId) => t(guildId, 'guides.games.title'),
+    buildContent: (guild, guildId) => [
+      `# 🎮 ${t(guildId, 'guides.games.title')}`,
       '',
-      '## How does it work?',
-      'The server has dedicated channels for specific games.',
-      'You can choose which games you\'re interested in to show or hide their channels.',
+      `## ${t(guildId, 'guides.games.howTitle')}`,
+      t(guildId, 'guides.games.how'),
       '',
-      '## Opt in / Opt out',
-      '1. Go to **#ma-gamelist**',
-      '2. Select the games you want to follow',
-      '3. The corresponding channels will appear in your sidebar automatically',
+      `## ${t(guildId, 'guides.games.optInTitle')}`,
+      t(guildId, 'guides.games.optIn').join('\n'),
       '',
-      '## Suggest a new game',
-      'If a game is missing, you can request it using the button in **#ma-gamelist**.',
-      'The staff will review the request.',
+      `## ${t(guildId, 'guides.games.suggestTitle')}`,
+      t(guildId, 'guides.games.suggest'),
       '',
-      '-# *This guide is maintained automatically by Guardian.*'
+      `-# *${t(guildId, 'guides.games.footer')}*`
     ].join('\n')
   },
   {
     key: 'commands',
     name: 'guide-commandes',
     emoji: '⌨️',
-    title: 'Guardian Commands',
-    buildContent: (guild, _guildId) => [
-      '# ⌨️ Guardian Commands',
+    title: (guildId) => t(guildId, 'guides.commands.title'),
+    buildContent: (guild, guildId) => [
+      `# ⌨️ ${t(guildId, 'guides.commands.title')}`,
       '',
-      '## Member commands',
-      '- `/parrainer @user` — Sponsor an invited user for membership',
-      '- `/score` — View your behaviour score',
-      '- `/profile` — View your server profile',
+      `## ${t(guildId, 'guides.commands.memberTitle')}`,
+      t(guildId, 'guides.commands.member').map((l) => `- ${l}`).join('\n'),
       '',
-      '## Staff commands',
-      '- `/promote @user` — Promote a member to the next rank',
-      '- `/warn @user` — Issue a warning',
-      '- `/kick @user` — Kick a member',
-      '- `/ban @user` — Ban a member',
-      '- `/historique @user` — View sanction history',
+      `## ${t(guildId, 'guides.commands.staffTitle')}`,
+      t(guildId, 'guides.commands.staff').map((l) => `- ${l}`).join('\n'),
       '',
-      '## Configuration',
-      'All Guardian settings are managed through the **⚙️ Configuration** category channels.',
-      'Only Managers and Owners have access.',
+      `## ${t(guildId, 'guides.commands.configTitle')}`,
+      t(guildId, 'guides.commands.config'),
       '',
-      '-# *This guide is maintained automatically by Guardian.*'
+      `-# *${t(guildId, 'guides.commands.footer')}*`
     ].join('\n')
   }
 ];
@@ -200,13 +183,14 @@ async function createCommunityGuides(guild) {
         type: ChannelType.GuildText,
         parent: category.id,
         permissionOverwrites: readOnlyPerms,
-        topic: `${def.emoji} ${def.title} — Guardian Guide`
+        topic: `${def.emoji} ${def.title(guildId)} — Guardian Guide`
       }).catch((err) => {
         logger.warn(`serverGuides: failed to create #${def.name} — ${err.message}`);
         return null;
       });
     } else {
       await ch.permissionOverwrites.set(readOnlyPerms).catch(() => {});
+      await ch.edit({ topic: `${def.emoji} ${def.title(guildId)} — Guardian Guide` }).catch(() => {});
     }
 
     if (ch) {
@@ -237,13 +221,14 @@ async function createForumGuides(guild) {
           type: ChannelType.GuildText,
           parent: category.id,
           permissionOverwrites: readOnlyPerms,
-          topic: `${def.emoji} ${def.title} — Guardian Guide`
+          topic: `${def.emoji} ${def.title(guildId)} — Guardian Guide`
         }).catch((err) => {
           logger.warn(`serverGuides: failed to create #${def.name} — ${err.message}`);
           return null;
         });
       } else {
         await ch.permissionOverwrites.set(readOnlyPerms).catch(() => {});
+        await ch.edit({ topic: `${def.emoji} ${def.title(guildId)} — Guardian Guide` }).catch(() => {});
       }
       if (ch) {
         const content = def.buildContent(guild, guildId);
@@ -264,24 +249,25 @@ async function createForumGuides(guild) {
         type: ChannelType.GuildForum,
         parent: category.id,
         permissionOverwrites: readOnlyPerms,
-        topic: `${def.emoji} ${def.title} — Guardian Guide`
+        topic: `${def.emoji} ${def.title(guildId)} — Guardian Guide`
       }).catch((err) => {
         logger.warn(`serverGuides: failed to create forum #${def.name} — ${err.message}`);
         return null;
       });
     } else {
       await forum.permissionOverwrites.set(readOnlyPerms).catch(() => {});
+      await forum.edit({ topic: `${def.emoji} ${def.title(guildId)} — Guardian Guide` }).catch(() => {});
     }
 
     if (forum) {
       const threads = await forum.threads.fetchActive().catch(() => null);
-      const existingThread = threads?.threads?.find((t) => t.name === def.title);
+      const existingThread = threads?.threads?.find((t) => t.name === def.title(guildId));
       if (!existingThread) {
         const content = def.buildContent(guild, guildId);
         await forum.threads.create({
-          name: def.title,
+          name: def.title(guildId),
           message: { content }
-        }).catch((err) => logger.warn(`serverGuides: failed to create thread "${def.title}" — ${err.message}`));
+        }).catch((err) => logger.warn(`serverGuides: failed to create thread "${def.title(guildId)}" — ${err.message}`));
       }
     }
   }
@@ -292,14 +278,39 @@ async function patchOnboardingDefaultChannels(guild, channelIds) {
     const current = await guild.fetchOnboarding().catch(() => null);
     if (!current) return false;
 
-    const existing = current.defaultChannels?.map((c) => c.id) ?? [];
-    const merged = [...new Set([...existing, ...channelIds])];
+    const existing = (current.defaultChannels || []).filter(Boolean).map((c) => c.id);
+    const validIds = [];
+    const everyone = guild.roles.everyone;
+    if (!everyone) {
+      logger.warn(`serverGuides: everyone role missing for guild ${guild.id}`);
+      return false;
+    }
 
-    await guild.client.rest.patch(`/guilds/${guild.id}/onboarding`, {
-      body: { default_channel_ids: merged }
+    for (const id of [...new Set(channelIds)]) {
+      const channel = guild.channels.cache.get(id);
+      if (!channel) continue;
+      const perms = channel.permissionsFor(everyone);
+      if (perms?.has(PermissionFlagsBits.ViewChannel)) {
+        validIds.push(id);
+      } else {
+        try {
+          await channel.permissionOverwrites.create(everyone, { ViewChannel: true });
+          validIds.push(id);
+        } catch (err) {
+          logger.warn(`serverGuides: cannot grant ViewChannel to @everyone for guide channel ${id}: ${err.message}`);
+        }
+      }
+    }
+
+    if (validIds.length === 0) return false;
+
+    const merged = [...new Set([...existing, ...validIds])];
+
+    await guild.client.rest.put(`/guilds/${guild.id}/onboarding`, {
+      body: { default_channel_ids: merged, enabled: true }
     });
 
-    logger.info(`serverGuides: patched onboarding default_channel_ids for guild ${guild.id} — added ${channelIds.length} guide channels`);
+    logger.info(`serverGuides: patched onboarding default_channel_ids for guild ${guild.id} — added ${validIds.length} guide channels`);
     return true;
   } catch (err) {
     logger.warn(`serverGuides: patchOnboarding failed for guild ${guild.id} — ${err.message}`);

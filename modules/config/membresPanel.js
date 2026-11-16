@@ -15,6 +15,7 @@ const { getGuildSetting, setGuildSetting } = require('./settings');
 const { getGradeMappings } = require('../initialisation/gradeMapping');
 const { logConfigChange } = require('./configLogger');
 const { seedJoinServerChannel } = require('../members/joinServerChannel');
+const { isPremiumFeatureEnabled, buildPremiumLockButton } = require('../tier/premiumGateUI');
 
 const IDS = Object.freeze({
   editDelay: 'membres:delay:edit',
@@ -28,6 +29,8 @@ const IDS = Object.freeze({
   editExpulsion: 'membres:expulsion:edit',
   expulsionModal: 'membres:expulsion:modal',
   toggleExpulsion: 'membres:expulsion:toggle',
+  editWelcomeDm: 'membres:welcomedm:edit',
+  welcomeDmModal: 'membres:welcomedm:modal',
 });
 
 function hasManagerGrade(member, guildId) {
@@ -69,6 +72,9 @@ function buildRows(guildId) {
   const bio = getGuildSetting(guildId, 'members', 'bio_required', false);
   const sponsor = getGuildSetting(guildId, 'members', 'sponsorship_required', false);
   const expulsion = getGuildSetting(guildId, 'members', 'expulsion_enabled', true);
+  const welcomeDmBtn = isPremiumFeatureEnabled(guildId)
+    ? new ButtonBuilder().setCustomId(IDS.editWelcomeDm).setLabel('✉️ DM Bienvenue custom').setStyle(ButtonStyle.Primary)
+    : buildPremiumLockButton('welcome_dm', 'DM Bienvenue custom');
   return [
     new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId(IDS.editDelay).setLabel(t(guildId, 'config.membres.editDelay')).setStyle(ButtonStyle.Primary),
@@ -90,7 +96,7 @@ async function seedMembresPanel(guild) {
   if (!channel) return;
   const msgs = await channel.messages.fetch({ limit: 5 }).catch(() => null);
   const hasPanel = msgs?.some((m) => m.author.id === guild.client.user.id && m.components.length > 0);
-  if (hasPanel) return;
+  if (hasPanel) { await refreshMembresPanel(guild); return; }
   const guildId = guild.id;
   await channel.send({ content: '', embeds: [buildPanelEmbed(guildId)], components: buildRows(guildId) }).catch(() => undefined);
 }

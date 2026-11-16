@@ -6,6 +6,7 @@ const { findGuildTextChannelByName } = require('../utils/channels');
 const { replyEphemeral } = require('../utils/interactions');
 const { memberHasAnyRole } = require('../utils/roles');
 const { t } = require('../i18n');
+const { isPremiumFeatureEnabled, buildPremiumLockButton } = require('../tier/premiumGateUI');
 
 function getServerManagerRoleIds(guildId) {
   const db = getDb();
@@ -45,6 +46,9 @@ function memberCanManageServers(interaction) {
  * @returns {ButtonBuilder}
  */
 function buildAddServerButton(guildId) {
+  if (!isPremiumFeatureEnabled(guildId)) {
+    return buildPremiumLockButton('server_list', 'Proposer un serveur');
+  }
   return new ButtonBuilder()
     .setCustomId('servers:add')
     .setLabel('➕ Proposer un serveur')
@@ -52,6 +56,10 @@ function buildAddServerButton(guildId) {
 }
 
 async function handleAddServerButton(interaction) {
+  if (!isPremiumFeatureEnabled(interaction.guildId)) {
+    await replyEphemeral(interaction, '🔒 La liste de serveurs est une feature **Guardian Premium**.');
+    return;
+  }
   const modal = new ModalBuilder().setCustomId('servers:add:modal').setTitle('Ajouter un serveur');
 
   const name = new TextInputBuilder().setCustomId('server_name').setLabel('Nom du serveur').setStyle(TextInputStyle.Short).setRequired(true);
@@ -73,6 +81,10 @@ async function handleAddServerButton(interaction) {
 
 async function handleServerModalSubmit(interaction) {
   const guildId = interaction.guildId;
+  if (!isPremiumFeatureEnabled(guildId)) {
+    await replyEphemeral(interaction, '🔒 La liste de serveurs est une feature **Guardian Premium**.');
+    return;
+  }
   const name = interaction.fields.getTextInputValue('server_name');
   const game = interaction.fields.getTextInputValue('server_game');
   const ip = interaction.fields.getTextInputValue('server_ip');

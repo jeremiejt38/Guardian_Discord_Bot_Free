@@ -109,8 +109,8 @@ const getGamesPage = (guildId) => _steps.getGamesPage(guildId);
 const setGamesPage = (guildId, page) => _steps.setGamesPage(guildId, page);
 const ensureAtLeastOneSetupGame = (guildId) => _steps.ensureAtLeastOneSetupGame(guildId);
 const getSteamCycleValue = (value) => _steps.getSteamCycleValue(value);
-const buildStep6Content_Games = (guildId) => _steps.buildStep6Content_Games(guildId, _ctx());
-const buildStep6Components_Games = (guildId) => _steps.buildStep6Components_Games(guildId, _ctx());
+const buildStep6Content_Games = (guildId) => _steps.buildStep6Content_Games(guildId, null, _ctx());
+const buildStep6Components_Games = (guildId) => _steps.buildStep6Components_Games(guildId, null, _ctx());
 
 const { LOGS_LEVELS } = _steps;
 const cycleLogsLevel = (current) => _steps.cycleLogsLevel(current);
@@ -154,7 +154,7 @@ const buildGameLinkComponents = (guildId, guild) => _gamesDetect.buildGameLinkCo
 
 
 
-const buildStepPayload = (guildId, guild, step) => _render.buildStepPayload(guildId, guild, step, _ctx());
+const buildStepPayload = async (guildId, guild, step) => _render.buildStepPayload(guildId, guild, step, _ctx());
 
 const renderStep = (interaction, step) => _render.renderStep(interaction, step, _ctx());
 
@@ -189,8 +189,21 @@ const buildNewOptionsComponents = (guildId, guild) => _notif.buildNewOptionsComp
 const buildNewOptionsDoneContent = () => _notif.buildNewOptionsDoneContent();
 const buildNewOptionsDoneRow = () => _notif.buildNewOptionsDoneRow(CUSTOM_IDS);
 
+async function resumeWizard(interaction) {
+  const { TOTAL_STEPS } = require('./setupConstants');
+  const savedStep = Number(getGuildSetting(interaction.guildId, 'setup', 'step', 0));
+  const step = (savedStep >= 1 && savedStep <= TOTAL_STEPS) ? savedStep : 1;
+  const payload = await buildStepPayload(interaction.guildId, interaction.guild, step, _ctx());
+  if (interaction.channel?.send) {
+    await interaction.channel.send(payload);
+  } else {
+    throw new Error('resumeWizard: no channel available');
+  }
+}
+
 module.exports = {
   CUSTOM_IDS,
   handleSetupInteraction,
-  startWizardInChannel
+  startWizardInChannel,
+  resumeWizard,
 };

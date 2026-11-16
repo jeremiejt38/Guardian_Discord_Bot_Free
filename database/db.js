@@ -73,6 +73,7 @@ function initDatabase(customPath = DATABASE_PATH) {
   db = new DatabaseCompat(customPath);
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
+  db.pragma('busy_timeout = 5000');
   db.exec(`
     CREATE TABLE IF NOT EXISTS schema_version (
       version INTEGER PRIMARY KEY,
@@ -320,9 +321,61 @@ const MIGRATIONS = [
       if (!cols.includes('text_channel_enabled')) conn.exec('ALTER TABLE servers_jeu ADD COLUMN text_channel_enabled INTEGER NOT NULL DEFAULT 0');
       if (!cols.includes('galerie_enabled'))      conn.exec('ALTER TABLE servers_jeu ADD COLUMN galerie_enabled INTEGER NOT NULL DEFAULT 0');
       if (!cols.includes('changelog_enabled'))    conn.exec('ALTER TABLE servers_jeu ADD COLUMN changelog_enabled INTEGER NOT NULL DEFAULT 0');
+      if (!cols.includes('list_message_id'))      conn.exec('ALTER TABLE servers_jeu ADD COLUMN list_message_id TEXT');
       if (!cols.includes('forum_enabled'))        conn.exec('ALTER TABLE servers_jeu ADD COLUMN forum_enabled INTEGER NOT NULL DEFAULT 0');
     }
-  }
+  },
+  {
+    version: 13,
+    description: 'servers_jeu: pelican_identifier for power actions',
+    up(conn) {
+      const cols = conn.prepare('PRAGMA table_info(servers_jeu)').all().map((c) => c.name);
+      if (!cols.includes('pelican_identifier')) conn.exec('ALTER TABLE servers_jeu ADD COLUMN pelican_identifier TEXT');
+    }
+  },
+  {
+    version: 14,
+    description: 'servers_jeu: description field from Pelican',
+    up(conn) {
+      const cols = conn.prepare('PRAGMA table_info(servers_jeu)').all().map((c) => c.name);
+      if (!cols.includes('description')) conn.exec('ALTER TABLE servers_jeu ADD COLUMN description TEXT');
+    }
+  },
+  {
+    version: 13,
+    description: 'rich_presence: consent and session tracking tables',
+    up(conn) {
+      conn.exec(`
+        CREATE TABLE IF NOT EXISTS rich_presence_consent (
+          guild_id TEXT NOT NULL,
+          user_id  TEXT NOT NULL,
+          consented_at TEXT NOT NULL,
+          PRIMARY KEY (guild_id, user_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS rich_presence_sessions (
+          session_id INTEGER PRIMARY KEY AUTOINCREMENT,
+          guild_id   TEXT NOT NULL,
+          user_id    TEXT NOT NULL,
+          game_name  TEXT NOT NULL,
+          started_at TEXT NOT NULL,
+          ended_at   TEXT,
+          duration_seconds INTEGER
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_rps_guild_user ON rich_presence_sessions(guild_id, user_id);
+        CREATE INDEX IF NOT EXISTS idx_rps_game ON rich_presence_sessions(guild_id, game_name);
+      `);
+    }
+  },
+  {
+    version: 15,
+    description: 'servers_jeu: list_message_id for member panel messages',
+    up(conn) {
+      const cols = conn.prepare('PRAGMA table_info(servers_jeu)').all().map((c) => c.name);
+      if (!cols.includes('list_message_id')) conn.exec('ALTER TABLE servers_jeu ADD COLUMN list_message_id TEXT');
+    }
+  },
 ];
 
 function migrateDatabase() {
@@ -410,6 +463,24 @@ function getModerationRoleIds(guildId) {
 }
 
 
+function deleteGuildData(guildId) {
+  const db = getDb();
+  const tables = [
+    'guild_config', 'grades', 'members', 'member_games', 'games',
+    'servers_jeu', 'parrainage', 'promotion_requests',
+    'rich_presence_sessions', 'sanctions', 'vocal_temp',
+    'changelogs_seen', 'game_requests', 'reports',
+  ];
+  const tx = db.transaction(() => {
+    for (const t of tables) {
+      try { db.prepare(`DELETE FROM ${t} WHERE guild_id = ?`).run(guildId); }
+      catch { /* table absente sur d'anciens schémas */ }
+    }
+    db.prepare('DELETE FROM guilds WHERE guild_id = ?').run(guildId);
+  });
+  tx();
+}
+
 module.exports = {
   initDatabase,
   migrateDatabase,
@@ -419,4 +490,5 @@ module.exports = {
   setGrade,
   getGrade,
   getModerationRoleIds,
+  deleteGuildData,
 };

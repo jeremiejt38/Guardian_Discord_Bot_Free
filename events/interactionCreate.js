@@ -1,3 +1,4 @@
+const { MessageFlags } = require('discord.js');
 const { markReportHandled, handleOpenReportButton, handleReportModalSubmit } = require('../modules/moderation/reports');
 const { handleSlowModeInteraction } = require('../modules/moderation/slowModePanel');
 const { handleBehaviorInteraction } = require('../modules/moderation/behaviorPanel');
@@ -10,7 +11,7 @@ const { handleRolesInteraction } = require('../modules/config/rolesPanel');
 const { handleBotInteraction } = require('../modules/config/botPanel');
 const { handleGuardianInteraction } = require('../modules/config/guardianPanel');
 const { handleHistoriquePagination } = require('../commands/historique');
-const { handleOpenGameList, handleGameListSelection } = require('../modules/games/gameList');
+const { handleOpenGameList, handleGameListSelection, handleGameListPage } = require('../modules/games/gameList');
 const { handleGamesInteraction } = require('../modules/games/optInInteraction');
 const { handleServerGamesInteraction } = require('../modules/games/serverGamesManager');
 const { handleGameRequestInteraction } = require('../modules/games/gameRequests');
@@ -37,9 +38,13 @@ const {
   handleSetupLanguageSelection,
   SETUP_CLEAN_SERVER_BUTTON_ID,
   SETUP_CLEAN_MODAL_ID,
+  SETUP_CLEAN_VOCALS_BUTTON_ID,
+  SETUP_CLEAN_ROLES_BUTTON_ID,
   SETUP_FRESH_START_BUTTON_ID,
   handleSetupCleanServerButton,
-  handleSetupCleanModal
+  handleSetupCleanModal,
+  handleSetupCleanVocalsButton,
+  handleSetupCleanRolesButton
 } = require('../modules/initialisation/setup');
 const { handleSetupInteraction, startWizardInChannel } = require('../modules/initialisation/setupFlow');
 const { handleAddServerButton, handleServerModalSubmit, memberCanManageServers } = require('../modules/servers/interaction');
@@ -52,6 +57,7 @@ const { findGuildTextChannelByName } = require('../modules/utils/channels');
 const { handleInteractionError } = require('../modules/utils/discordErrors');
 const { checkRateLimit } = require('../modules/utils/rateLimit');
 const { handlePremiumGateClick } = require('../modules/tier/premiumGate');
+const { handleSuggestionInteraction } = require('../modules/suggestions/suggestions');
 const logger = require('../modules/logs/logger');
 
 const commandCooldowns = new Map();
@@ -76,7 +82,7 @@ module.exports = {
       const lastUsed = commandCooldowns.get(cooldownKey) ?? 0;
       const now = Date.now();
       if (now - lastUsed < COMMAND_COOLDOWN_MS) {
-        await interaction.reply({ content: '⏳ Please wait a moment before using this command again.', ephemeral: true }).catch(() => {});
+        await interaction.reply({ content: '⏳ Please wait a moment before using this command again.', flags: MessageFlags.Ephemeral }).catch(() => {});
         return;
       }
       commandCooldowns.set(cooldownKey, now);
@@ -94,6 +100,10 @@ module.exports = {
       return;
     }
 
+    if (interaction.isButton() && interaction.customId?.startsWith('suggestions:status:')) {
+      const handled = await handleSuggestionInteraction(interaction);
+      if (handled) return;
+    }
 
     if (interaction.isButton() && interaction.customId?.startsWith('bot:admin:bootstrap:')) {
       const action = interaction.customId.split(':')[3];
@@ -129,7 +139,7 @@ module.exports = {
         await performUpdate(interaction);
       } else if (action === 'skip') {
         if (!isBotAdmin(interaction.user.id)) {
-          await interaction.reply({ content: '❌ Tu n\'es pas autorisé.', ephemeral: true }).catch(() => {});
+          await interaction.reply({ content: '❌ Tu n\'es pas autorisé.', flags: MessageFlags.Ephemeral }).catch(() => {});
           return;
         }
         await interaction.deferUpdate().catch(() => {});
@@ -222,7 +232,10 @@ module.exports = {
     if (
       interaction.customId?.startsWith('serveurs-jeu:') ||
       interaction.customId?.startsWith('servers:approve:') ||
-      interaction.customId?.startsWith('servers:reject:')
+      interaction.customId?.startsWith('servers:reject:') ||
+      interaction.customId?.startsWith('servers:checkupdate:') ||
+      interaction.customId?.startsWith('servers:doupdate:') ||
+      interaction.customId?.startsWith('server:copy:')
     ) {
       const handled = await handleServeursJeuInteraction(interaction);
       if (handled) return;
@@ -268,6 +281,11 @@ module.exports = {
       return;
     }
 
+    if (interaction.isButton() && interaction.customId.startsWith('gamelist:select:page:')) {
+      await handleGameListPage(interaction);
+      return;
+    }
+
     if (interaction.isButton() || interaction.isStringSelectMenu() || interaction.isModalSubmit()) {
       if (
         interaction.customId === PROMOTION_IDS.request ||
@@ -294,7 +312,7 @@ module.exports = {
     }
 
     if (interaction.isButton() || interaction.isStringSelectMenu()) {
-      if (interaction.customId === 'games:manage' || interaction.customId === 'games:select') {
+      if (interaction.customId === 'games:manage' || interaction.customId.startsWith('games:select')) {
         const handled = await handleGamesInteraction(interaction);
         if (handled) return;
       }
@@ -305,7 +323,7 @@ module.exports = {
         interaction.customId === 'servergames:add' ||
         interaction.customId === 'servergames:remove' ||
         interaction.customId === 'servergames:add:modal' ||
-        interaction.customId === 'servergames:remove:select'
+        interaction.customId.startsWith('servergames:remove:select')
       ) {
         const handled = await handleServerGamesInteraction(interaction);
         if (handled) return;
@@ -350,6 +368,16 @@ module.exports = {
       return;
     }
 
+    if (interaction.isButton() && interaction.customId === SETUP_CLEAN_VOCALS_BUTTON_ID) {
+      await handleSetupCleanVocalsButton(interaction);
+      return;
+    }
+
+    if (interaction.isButton() && interaction.customId === SETUP_CLEAN_ROLES_BUTTON_ID) {
+      await handleSetupCleanRolesButton(interaction);
+      return;
+    }
+
     if (interaction.isModalSubmit() && interaction.customId === SETUP_CLEAN_MODAL_ID) {
       await handleSetupCleanModal(interaction);
       return;
@@ -365,7 +393,7 @@ module.exports = {
       return;
     }
 
-    if (interaction.isStringSelectMenu() && interaction.customId === 'gamelist:select') {
+    if (interaction.isStringSelectMenu() && interaction.customId.startsWith('gamelist:select:')) {
       await handleGameListSelection(interaction);
       return;
     }
@@ -400,7 +428,7 @@ module.exports = {
 
     if (interaction.isButton() && interaction.customId.startsWith('servers:approve:')) {
       if (!memberCanManageServers(interaction)) {
-        await interaction.reply({ content: t(interaction.guildId, 'interaction.forbidden'), ephemeral: true });
+        await interaction.reply({ content: t(interaction.guildId, 'interaction.forbidden'), flags: MessageFlags.Ephemeral });
         return;
       }
       const parts = interaction.customId.split(':');
@@ -434,7 +462,7 @@ module.exports = {
 
     if (interaction.isButton() && interaction.customId.startsWith('servers:reject:')) {
       if (!memberCanManageServers(interaction)) {
-        await interaction.reply({ content: t(interaction.guildId, 'interaction.forbidden'), ephemeral: true });
+        await interaction.reply({ content: t(interaction.guildId, 'interaction.forbidden'), flags: MessageFlags.Ephemeral });
         return;
       }
       const parts = interaction.customId.split(':');
@@ -447,7 +475,7 @@ module.exports = {
 
     if (interaction.isButton() && interaction.customId.startsWith('servers:connect:')) {
       if (!memberCanManageServers(interaction)) {
-        await interaction.reply({ content: t(interaction.guildId, 'interaction.forbidden'), ephemeral: true });
+        await interaction.reply({ content: t(interaction.guildId, 'interaction.forbidden'), flags: MessageFlags.Ephemeral });
         return;
       }
       const parts = interaction.customId.split(':');
@@ -455,19 +483,19 @@ module.exports = {
       const db = getDb();
       const row = db.prepare('SELECT ip, port, password FROM servers_jeu WHERE server_id = ?').get(serverId);
       if (!row) {
-        await interaction.reply({ content: t(interaction.guildId, 'servers.notFound'), ephemeral: true });
+        await interaction.reply({ content: t(interaction.guildId, 'servers.notFound'), flags: MessageFlags.Ephemeral });
         return;
       }
       let pwd = row.password;
       try {
         pwd = decrypt(row.password);
       } catch (e) {}
-      await interaction.reply({ content: t(interaction.guildId, 'servers.connectInfo', { ip: row.ip, port: String(row.port), pwd: pwd || '' }), ephemeral: true });
+      await interaction.reply({ content: t(interaction.guildId, 'servers.connectInfo', { ip: row.ip, port: String(row.port), pwd: pwd || '' }), flags: MessageFlags.Ephemeral });
       return;
     }
 
     if (interaction.isRepliable()) {
-      await interaction.reply({ content: t(interaction.guildId, 'interaction.unsupported'), ephemeral: true });
+      await interaction.reply({ content: t(interaction.guildId, 'interaction.unsupported'), flags: MessageFlags.Ephemeral });
     }
     } catch (err) {
       const handled = await handleInteractionError(interaction, err, `interactionCreate:${interaction.customId ?? interaction.commandName ?? 'unknown'}`);
